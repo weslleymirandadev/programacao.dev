@@ -6,6 +6,11 @@ export async function proxy(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   const { pathname } = req.nextUrl;
 
+  // Rotas de API públicas para GET (cursos e jornadas públicos)
+  const isPublicApiRoute = 
+    (pathname === "/api/courses" || pathname === "/api/journeys") && 
+    req.method === "GET";
+
   const isPublicRoute =
     pathname.startsWith("/signin") ||
     pathname.startsWith("/register") ||
@@ -17,7 +22,8 @@ export async function proxy(req: NextRequest) {
     pathname === "/" ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/assets") ||
-    pathname.startsWith("/favicon");
+    pathname.startsWith("/favicon") ||
+    isPublicApiRoute;
 
   if (!isPublicRoute && !token) {
     const url = new URL("/signin", req.url);
