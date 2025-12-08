@@ -5,7 +5,6 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import GitHubProvider from "next-auth/providers/github";
-import "./auth.d";
 import { UserRole } from "@/generated/prisma/enums";
 
 async function resolveUserRole(email: string): Promise<"USER" | "ADMIN" | "INSTRUCTOR" | "MODERATOR"> {
@@ -42,7 +41,7 @@ export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
 
   session: {
-    strategy: "database",
+    strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 dias
   },
 
@@ -57,12 +56,14 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      allowDangerousEmailAccountLinking: true,
     }),
 
     // --- GitHub OAuth ---
     GitHubProvider({
       clientId: process.env.GITHUB_CLIENT_ID!,
       clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+      allowDangerousEmailAccountLinking: true,
     }),
 
     // --- Credentials login (email/senha) ---
@@ -164,11 +165,20 @@ export const authOptions: NextAuthOptions = {
       return true;
     },
 
-    // Sessão → devolve ID e role pra UI
-    async session({ session, user }) {
+    // JWT → carrega ID e role do usuário para o token
+    async jwt({ token, user }) {
+      if (user) {
+        (token as any).id = (user as any).id;
+        (token as any).role = (user as any).role;
+      }
+      return token;
+    },
+
+    // Sessão → devolve ID e role pra UI a partir do token
+    async session({ session, token }) {
       if (session.user) {
-        session.user.id = user.id;
-        session.user.role = (user as any).role;
+        (session.user as any).id = (token as any).id;
+        (session.user as any).role = (token as any).role;
       }
       return session;
     },
