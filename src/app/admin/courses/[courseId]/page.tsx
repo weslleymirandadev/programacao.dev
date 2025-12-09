@@ -150,15 +150,19 @@ export default function EditCoursePage() {
           <Input
             id="price"
             type="text"
-            value={course.price ? (course.price / 100).toFixed(2).replace('.', ',') : ''}
+            value={course.price !== null ? (course.price / 100).toFixed(2).replace('.', ',') : ''}
             onChange={(e) => {
               // Allow only numbers, comma, and dot
-              const value = e.target.value.replace(/[^0-9,.]/g, '');
+              let value = e.target.value.replace(/[^0-9,.]/g, '');
               // Format as currency while typing
               const parts = value.split(',');
               if (parts.length <= 2) {
-                const numericValue = value ? parseFloat(value.replace(',', '.')) * 100 : null;
-                setCourse({ ...course, price: numericValue });
+                // Convert to cents when saving
+                const priceInCents = value ? Math.round(parseFloat(value.replace(',', '.')) * 100) : null;
+                setCourse({
+                  ...course,
+                  price: priceInCents
+                });
               }
             }}
             placeholder="0,00"
@@ -187,12 +191,16 @@ export default function EditCoursePage() {
               value={(course.discountPrice / 100).toFixed(2).replace('.', ',')}
               onChange={(e) => {
                 // Allow only numbers, comma, and dot
-                const value = e.target.value.replace(/[^0-9,.]/g, '');
+                let value = e.target.value.replace(/[^0-9,.]/g, '');
                 // Format as currency while typing
                 const parts = value.split(',');
                 if (parts.length <= 2) {
-                  const numericValue = value ? parseFloat(value.replace(',', '.')) * 100 : 0;
-                  setCourse({ ...course, discountPrice: numericValue });
+                  // Convert to cents when saving
+                  const discountInCents = value ? Math.round(parseFloat(value.replace(',', '.')) * 100) : 0;
+                  setCourse({
+                    ...course,
+                    discountPrice: discountInCents
+                  });
                 }
               }}
               placeholder="0,00"
