@@ -129,7 +129,7 @@ export async function POST(req: Request) {
           quantity: item.quantity
         })),
       },
-      device_fingerprint: req.headers.get('X-meli-session-id'),
+      device_id: req.headers.get('X-meli-session-id'),
       additional_info: {
         items: enrichedItems.map(item => ({
           id: item.id,
