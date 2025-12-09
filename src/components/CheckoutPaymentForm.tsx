@@ -754,7 +754,7 @@ export function CheckoutPaymentForm({ amount, items }: CheckoutPaymentFormProps)
           className="space-y-4 rounded-md border border-gray-200 p-4"
         >
           <p className="text-xs text-gray-500">
-            Você receberá um QR Code ou chave PIX para pagar o valor de
+            Você receberá um QR Code para pagar o valor de
             {" "}
             <span className="font-semibold">{formatPrice(amount)}</span>.
           </p>
