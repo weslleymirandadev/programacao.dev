@@ -50,31 +50,43 @@ export function CartProvider({ children }: CartProviderProps) {
 
   const STORAGE_KEY = "cart:guest";
 
-  // 1) Carrega carrinho guest do localStorage na primeira montagem
+  // Load cart from server or localStorage on mount
   useEffect(() => {
-    if (initializedRef.current) return;
-    if (typeof window === "undefined") return;
-
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as CartItem[];
-        if (Array.isArray(parsed)) {
-          // Ensure all prices are stored in cents
-          const normalizedItems = parsed.map(item => ({
-            ...item,
-            price: item.price // Keep in cents
-          }));
-          setItems(normalizedItems);
+    const loadCart = async () => {
+      if (status === 'authenticated') {
+        try {
+          const response = await fetch('/api/cart');
+          if (response.ok) {
+            const { items: serverItems } = await response.json();
+            // Only update if we have server items and no local items to avoid overwriting
+            if (serverItems?.length > 0) {
+              setItems(serverItems);
+              return; // Skip localStorage check
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load cart from server', error);
         }
       }
-    } catch {
-      // ignora erros de parse
-    }
+      
+      // Fallback to localStorage for guests or if server fetch fails
+      const savedCart = localStorage.getItem(STORAGE_KEY);
+      if (savedCart) {
+        try {
+          const parsedCart = JSON.parse(savedCart);
+          if (Array.isArray(parsedCart)) {
+            setItems(parsedCart);
+          }
+        } catch (error) {
+          console.error('Failed to parse cart from localStorage', error);
+        }
+      }
+    };
 
-    initializedRef.current = true;
-  }, []);
+    loadCart();
+  }, [status]); // Re-run when auth status changes
 
+  // Save cart to localStorage when it changes (for guests)
   // 2) Sempre que items mudar, persiste como guest no localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -86,8 +98,13 @@ export function CartProvider({ children }: CartProviderProps) {
   }, [items]);
 
   async function addItem(item: CartItem) {
-    // 1. Check if item is already in cart
-    const alreadyInCart = items.some(i => i.id === item.id && i.type === item.type);
+    // 1. Check if item is already in cart (case-insensitive and ignoring whitespace)
+    const normalizedItemId = item.id.trim().toLowerCase();
+    const alreadyInCart = items.some(i => 
+      i.id.trim().toLowerCase() === normalizedItemId && 
+      i.type === item.type
+    );
+    
     if (alreadyInCart) {
       toast.error('Este item já está no seu carrinho');
       openCart();
@@ -111,7 +128,36 @@ export function CartProvider({ children }: CartProviderProps) {
     }
 
     // 3. If we get here, it's safe to add the item
-    setItems(prev => [...prev, { ...item, price: item.price }]);
+    const newItem = { ...item, price: item.price };
+    const newItems = [...items, newItem];
+    
+    // 4. Update server if authenticated
+    if (status === 'authenticated') {
+      try {
+        const response = await fetch('/api/cart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            itemId: item.id,
+            itemType: item.type === 'jornada' ? 'JOURNEY' : 'COURSE',
+            quantity: 1,
+            price: item.price,
+            title: item.title
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to update server cart');
+        }
+      } catch (error) {
+        console.error('Failed to update server cart:', error);
+        toast.error('Erro ao adicionar ao carrinho. Tente novamente.');
+        return;
+      }
+    }
+    
+    // 5. Update local state
+    setItems(newItems);
     openCart();
   }
 
