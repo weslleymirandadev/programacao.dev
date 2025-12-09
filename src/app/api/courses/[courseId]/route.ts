@@ -9,7 +9,6 @@ export async function GET(
 ) {
   try {
     const { courseId: id } = await params;
-    console.log('Course ID from params:', id);
 
     if (!id) {
       return NextResponse.json(
