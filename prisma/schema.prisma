@@ -91,7 +91,7 @@ model Course {
   enrollments     Enrollment[]
   forumPosts      ForumPost[]
   modules         Module[]
-  payments        Payment[]
+  paymentItems    PaymentItem[]
   journeys        JourneyCourse[]
 }
 
@@ -164,7 +164,7 @@ model Journey {
   enrollments Enrollment[]
   forumPosts  ForumPost[]
   modules     JourneyModule[]
-  payments    Payment[]
+  paymentItems PaymentItem[]
   courses     JourneyCourse[]
 }
 
@@ -247,22 +247,42 @@ model CartItem {
 }
 
 model Payment {
-  id          String          @id @default(cuid())
+  id          String        @id @default(cuid())
   userId      String
-  courseId    String?
-  mpPaymentId String          @unique
+  mpPaymentId String        @unique
   status      String
   amount      Int
   metadata    Json?
-  createdAt   DateTime        @default(now())
-  itemType    PaymentItemType
-  journeyId   String?
-  course      Course?         @relation(fields: [courseId], references: [id])
-  journey     Journey?        @relation(fields: [journeyId], references: [id])
-  user        User            @relation(fields: [userId], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  user        User          @relation(fields: [userId], references: [id])
+  items       PaymentItem[]
   refunds     Refund[]
 
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PaymentItem {
+  id          String          @id @default(cuid())
+  paymentId   String
+  itemType    PaymentItemType
+  courseId    String?
+  journeyId   String?
+  quantity    Int             @default(1)
+  price       Int
+  title       String
+  description String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  payment     Payment         @relation(fields: [paymentId], references: [id])
+  course      Course?         @relation(fields: [courseId], references: [id])
+  journey     Journey?        @relation(fields: [journeyId], references: [id])
+
+  @@index([paymentId])
   @@index([itemType])
+  @@index([courseId])
+  @@index([journeyId])
 }
 
 model Refund {
@@ -287,5 +307,4 @@ enum UserRole {
 enum PaymentItemType {
   COURSE
   JOURNEY
-  MULTIPLE
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import prisma from "@/lib/prisma";
 
-type PaymentItemType = 'COURSE' | 'JOURNEY' | 'MULTIPLE';
+type PaymentItemType = 'COURSE' | 'JOURNEY';
 
 const mp = new MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN!,
@@ -154,73 +154,50 @@ export async function POST(req: Request) {
       }
     });
 
-    // Salvar no banco de dados usando upsert para evitar duplicação
     const mpPaymentId = response.id?.toString()!;
-    // Get all course and journey items
-    const courseItems = enrichedItems.filter(item => item.type === 'course');
-    const journeyItems = enrichedItems.filter(item => item.type === 'journey');
-    
-    // Get all course and journey IDs
-    const courseIds = courseItems.map(item => item.id);
-    const journeyIds = journeyItems.map(item => item.id);
 
-    // Determine the main item type for the payment
-    const itemType: PaymentItemType = enrichedItems.length === 1
-      ? enrichedItems[0].type === 'course' ? 'COURSE' : 'JOURNEY'
-      : 'MULTIPLE';
-
-    const paymentData = {
-      userId,
-      status: "PENDING" as const,
-      amount: calculatedTotalInCents,
-      itemType,
-      // For backward compatibility, set the first course/journey ID if it's a single type purchase
-      courseId: courseItems.length > 0 ? courseItems[0].id : null,
-      journeyId: journeyItems.length > 0 ? journeyItems[0].id : null,
-      metadata: {
-        userId,
-        method,
-        installments,
-        // Store all items with their details
-        items: enrichedItems,
-        // Store all course and journey IDs for reference
-        courseIds,
-        journeyIds,
-        ...(response.point_of_interaction?.transaction_data && {
-          qr_code: response.point_of_interaction.transaction_data.qr_code,
-          qr_code_base64: response.point_of_interaction.transaction_data.qr_code_base64,
-          ticket_url: response.point_of_interaction.transaction_data.ticket_url
-        })
-      },
-    };
-
-    const paymentRecord = await prisma.payment.upsert({
-      where: { mpPaymentId },
-      create: {
-        ...paymentData,
-        mpPaymentId,
-      },
-      update: {
-        // Atualiza apenas os campos que podem mudar em caso de tentativa de recriação
-        status: paymentData.status,
-        metadata: paymentData.metadata,
-        createdAt: new Date()
-      },
-    });
-
-    if (response.point_of_interaction?.transaction_data) {
-      await prisma.payment.update({
-        where: { id: paymentRecord.id },
+    // Create payment record with items in a transaction
+    const paymentRecord = await prisma.$transaction(async (prisma) => {
+      // 1. Create the payment
+      const payment = await prisma.payment.create({
         data: {
+          userId,
+          mpPaymentId,
+          status: "PENDING",
+          amount: calculatedTotalInCents,
           metadata: {
-            ...paymentData.metadata,
-            qr_code: response.point_of_interaction.transaction_data.qr_code,
-            qr_code_base64: response.point_of_interaction.transaction_data.qr_code_base64,
-            ticket_url: response.point_of_interaction.transaction_data.ticket_url
+            userId,
+            method,
+            installments,
+            items: enrichedItems,
+            ...(response.point_of_interaction?.transaction_data && {
+              qr_code: response.point_of_interaction.transaction_data.qr_code,
+              qr_code_base64: response.point_of_interaction.transaction_data.qr_code_base64,
+              ticket_url: response.point_of_interaction.transaction_data.ticket_url
+            })
+          },
+          // Create related payment items
+          items: {
+            create: enrichedItems.map(item => {
+              const isCourse = item.type === 'course';
+              return {
+                itemType: isCourse ? 'COURSE' : 'JOURNEY',
+                [isCourse ? 'courseId' : 'journeyId']: item.id,
+                quantity: item.quantity,
+                price: item.price,
+                title: item.title,
+                description: isCourse ? 'Curso' : 'Jornada',
+              };
+            })
           }
+        },
+        include: {
+          items: true // Include the created items in the response
         }
       });
-    }
+
+      return payment;
+    });
 
     return NextResponse.json({
       id: response.id,

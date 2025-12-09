@@ -3,18 +3,29 @@ import prisma from "@/lib/prisma";
 import { MercadoPagoConfig, Payment as MPPayment } from "mercadopago";
 
 type PaymentStatus = 'PENDING' | 'APPROVED' | 'REFUNDED' | 'CANCELLED' | 'FAILED';
-type PaymentItemType = 'COURSE' | 'JOURNEY' | 'MULTIPLE';
+type PaymentItemType = 'COURSE' | 'JOURNEY';
+type ItemType = 'course' | 'journey';
 
 interface PaymentMetadata {
   userId?: string;
-  items?: Array<{id: string; type: string; quantity?: number}>;
+  items?: Array<{
+    id: string;
+    type: ItemType;
+    quantity?: number;
+    title?: string;
+    price?: number;
+  }>;
+  durationMonths?: number;
   [key: string]: any;
 }
 
 interface PaymentItem {
   id: string;
-  type: string;
+  type: ItemType;
   quantity?: number;
+  price?: number;
+  title?: string;
+  description?: string;
 }
 
 const client = new MercadoPagoConfig({
@@ -92,20 +103,20 @@ async function getPaymentWithFallback(mpPaymentId: string) {
 
 async function revokeUserAccess(userId: string, items: PaymentItem[]) {
   for (const item of items) {
-    if (item.type === 'course') {
-      await prisma.enrollment.deleteMany({
-        where: {
-          userId,
-          courseId: item.id
-        }
-      });
-    } else if (item.type === 'journey') {
-      await prisma.enrollment.deleteMany({
-        where: {
-          userId,
-          journeyId: item.id
-        }
-      });
+    try {
+      if (item.type === 'course') {
+        await prisma.enrollment.deleteMany({
+          where: { userId, courseId: item.id }
+        });
+        console.log(`Acesso removido do curso ${item.id} para o usuário ${userId}`);
+      } else if (item.type === 'journey') {
+        await prisma.enrollment.deleteMany({
+          where: { userId, journeyId: item.id }
+        });
+        console.log(`Acesso removido da jornada ${item.id} para o usuário ${userId}`);
+      }
+    } catch (error) {
+      console.error(`Erro ao remover acesso para ${item.type} ${item.id}:`, error);
     }
   }
 }
@@ -120,78 +131,27 @@ async function handlePaymentStatusUpdate(
     await ensureUserExists(userId);
     
     // Atualizar status do pagamento
-    const payment = await prisma.payment.upsert({
+    await prisma.payment.update({
       where: { mpPaymentId: paymentId },
-      create: {
-        mpPaymentId: paymentId,
-        status,
-        amount: 0, // Será atualizado abaixo se necessário
-        user: { connect: { id: userId } },
-        itemType: items.length === 1 
-          ? items[0].type === 'journey' ? 'JOURNEY' : 'COURSE'
-          : 'MULTIPLE',
-        metadata: { items } as any, // Garantir que os itens sejam salvos no metadata
-      },
-      update: { 
-        status,
-        metadata: { items } as any, // Atualizar os itens no metadata também
-      },
-      include: { 
-        refunds: true,
-        course: items.some(i => i.type === 'course') ? true : undefined,
-        journey: items.some(i => i.type === 'journey') ? true : undefined,
-      }
+      data: { status },
+      include: { refunds: true }
     });
 
-    // Se for um reembolso, remover acesso aos itens
+    // Se for um reembolso ou cancelamento, remover acesso aos itens
     if (status === 'REFUNDED' || status === 'CANCELLED') {
-      const itemsToProcess = items.length > 0 
-        ? items 
-        : (payment as any).metadata?.items || [];
-
-      for (const item of itemsToProcess) {
-        try {
-          if (item.type === 'course') {
-            const courseId = item.id || (payment as any).courseId;
-            if (courseId) {
-              await prisma.enrollment.deleteMany({
-                where: { 
-                  userId,
-                  courseId: courseId
-                }
-              });
-              console.log(`Acesso removido do curso ${courseId} para o usuário ${userId}`);
-            }
-          } else if (item.type === 'journey') {
-            const journeyId = item.id || (payment as any).journeyId;
-            if (journeyId) {
-              await prisma.enrollment.deleteMany({
-                where: { 
-                  userId,
-                  journeyId: journeyId
-                }
-              });
-              console.log(`Acesso removido da jornada ${journeyId} para o usuário ${userId}`);
-            }
-          }
-        } catch (error) {
-          console.error(`Erro ao remover acesso para item ${item.id} (${item.type}):`, error);
+      await revokeUserAccess(userId, items);
+      
+      // Atualizar status dos reembolsos pendentes
+      await prisma.refund.updateMany({
+        where: { 
+          payment: { mpPaymentId: paymentId },
+          status: 'PENDING'
+        },
+        data: { 
+          status: 'COMPLETED',
         }
-      }
-
-      // Atualizar status do reembolso se existir
-      if (payment.refunds && payment.refunds.length > 0) {
-        await prisma.refund.updateMany({
-          where: { 
-            paymentId: payment.id,
-            status: 'PENDING'
-          },
-          data: { 
-            status: 'COMPLETED',
-          }
-        });
-        console.log(`Status do reembolso atualizado para COMPLETED para o pagamento ${paymentId}`);
-      }
+      });
+      console.log(`Status do reembolso atualizado para COMPLETED para o pagamento ${paymentId}`);
     }
   } catch (error) {
     console.error('Erro ao processar atualização de status de pagamento:', error);
@@ -206,34 +166,105 @@ async function processApprovedPayment(
   items: PaymentItem[],
   durationMonths: number = 12
 ) {
-  // Ensure user exists before proceeding
-  await ensureUserExists(userId);
+  try {
+    await ensureUserExists(userId);
 
-  const paymentData = {
-    user: { connect: { id: userId } },
-    mpPaymentId: paymentId,
-    status: 'APPROVED' as const,
-    amount: Math.round(amount * 100),
-    itemType: (items.length === 1
-      ? items[0].type === 'journey' ? 'JOURNEY' : 'COURSE'
-      : 'MULTIPLE') as PaymentItemType,
-    ...(items.length === 1 && items[0].type === 'course'
-      ? { course: { connect: { id: items[0].id } } }
-      : {}),
-    ...(items.length === 1 && items[0].type === 'journey'
-      ? { journey: { connect: { id: items[0].id } } }
-      : {}),
-  };
+    // Ensure items have required fields
+    const validatedItems = items.map(item => ({
+      ...item,
+      quantity: item.quantity || 1,
+      price: item.price || Math.round((amount * 100) / items.length),
+      title: item.title || (item.type === 'course' ? 'Curso' : 'Jornada')
+    }));
 
-  await prisma.payment.upsert({
-    where: { mpPaymentId: paymentId },
-    create: paymentData,
-    update: {
-      status: 'APPROVED',
-      amount: paymentData.amount,
-    },
-  });
+    const totalAmount = validatedItems.reduce((sum, item) => sum + (item.price || 0), 0);
 
+    // Create or update payment
+    const payment = await prisma.payment.upsert({
+      where: { mpPaymentId: paymentId },
+      create: {
+        mpPaymentId: paymentId,
+        userId,
+        status: 'APPROVED',
+        amount: totalAmount,
+        metadata: { 
+          items: validatedItems,
+          durationMonths 
+        },
+        items: {
+          create: validatedItems.map(item => {
+            const isCourse = item.type === 'course';
+            return {
+              itemType: isCourse ? 'COURSE' : 'JOURNEY',
+              [isCourse ? 'courseId' : 'journeyId']: item.id,
+              quantity: item.quantity,
+              price: item.price || 0,
+              title: item.title,
+              description: isCourse ? 'Curso' : 'Jornada',
+            };
+          })
+        }
+      },
+      update: {
+        status: 'APPROVED',
+        amount: totalAmount,
+        metadata: { 
+          items: validatedItems,
+          durationMonths 
+        }
+      },
+      include: { 
+        items: true 
+      }
+    });
+
+    // Create enrollments
+    await Promise.all(
+      validatedItems.map(async (item) => {
+        if (item.type === 'course') {
+          await prisma.enrollment.upsert({
+            where: { 
+              userId_courseId: { 
+                userId, 
+                courseId: item.id 
+              } 
+            },
+            create: { 
+              userId, 
+              courseId: item.id, 
+              endDate: null 
+            },
+            update: {}
+          });
+        } else if (item.type === 'journey') {
+          const endDate = new Date();
+          endDate.setMonth(endDate.getMonth() + durationMonths);
+
+          await prisma.enrollment.upsert({
+            where: { 
+              userId_journeyId: { 
+                userId, 
+                journeyId: item.id 
+              } 
+            },
+            create: { 
+              userId, 
+              journeyId: item.id, 
+              endDate 
+            },
+            update: { endDate }
+          });
+        }
+      })
+    );
+
+    return payment;
+  } catch (error) {
+    console.error('Error in processApprovedPayment:', error);
+    throw error;
+  }
+
+  // Criar matrículas
   for (const item of items) {
     if (item.type === 'course') {
       await prisma.enrollment.upsert({
@@ -359,7 +390,7 @@ export async function POST(req: Request) {
         userId,
         payment.transaction_amount!,
         items,
-        metadata.durationMonths ? parseInt(metadata.durationMonths) : 12
+        metadata.durationMonths ? metadata.durationMonths : 12
       );
       return sendOK();
     }
@@ -368,25 +399,48 @@ export async function POST(req: Request) {
     try {
       await ensureUserExists(userId);
 
+      // Calculate amount in cents
+      const amount = payment.transaction_amount
+        ? Math.round(payment.transaction_amount * 100)
+        : 0;
+
+      // Prepare items data
+      const itemsData = items.map(item => ({
+        ...item,
+        quantity: item.quantity || 1,
+        price: item.price || Math.round(amount / Math.max(1, items.length)),
+        title: item.title || (item.type === 'course' ? 'Curso' : 'Jornada')
+      }));
+
+      // Create or update payment with items
       await prisma.payment.upsert({
         where: { mpPaymentId: mpPaymentId.toString() },
         create: {
-          user: { connect: { id: userId } },
           mpPaymentId: mpPaymentId.toString(),
+          userId,
           status: mappedStatus,
-          amount: payment.transaction_amount
-            ? Math.round(payment.transaction_amount * 100)
-            : 0,
-          itemType:
-            items.length === 1
-              ? items[0].type === "journey"
-                ? "JOURNEY"
-                : "COURSE"
-              : "MULTIPLE",
+          amount,
+          metadata: { items: itemsData },
+          items: {
+            create: itemsData.map(item => {
+              const isCourse = item.type === 'course';
+              return {
+                itemType: isCourse ? 'COURSE' : 'JOURNEY',
+                [isCourse ? 'courseId' : 'journeyId']: item.id,
+                quantity: item.quantity,
+                price: item.price || 0,
+                title: item.title,
+                description: isCourse ? 'Curso' : 'Jornada',
+              };
+            })
+          }
         },
         update: {
           status: mappedStatus,
+          amount,
+          metadata: { items: itemsData }
         },
+        include: { items: true }
       });
     } catch (error) {
       console.error('Erro ao processar pagamento:', error);

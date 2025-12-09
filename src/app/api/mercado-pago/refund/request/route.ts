@@ -2,15 +2,17 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { MercadoPagoConfig, PaymentRefund } from "mercadopago";
 
-// Definir tipo para os itens no metadata
 type PaymentItem = {
   id: string;
-  type: 'course' | 'journey';
+  type: 'curso' | 'jornada';
   quantity?: number;
+  price?: number;
+  title?: string;
 };
 
 type PaymentMetadata = {
   items?: PaymentItem[];
+  durationMonths?: number;
   [key: string]: any;
 };
 
@@ -21,13 +23,18 @@ export async function POST(req: Request) {
     const { paymentId, userId } = await req.json();
     console.log(`Iniciando processo de reembolso para pagamento ${paymentId}, usuário ${userId}`);
 
-    // Buscar pagamento com informações relacionadas
+    // Buscar pagamento com itens e reembolsos
     const payment = await prisma.payment.findUnique({
       where: { id: paymentId },
       include: {
-        course: true,
-        journey: true,
-        refunds: true
+        items: true,
+        refunds: true,
+        user: {
+          select: {
+            id: true,
+            email: true
+          }
+        }
       }
     });
 
@@ -50,14 +57,14 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    // 30 dias de limite para reembolso
+    // 7 dias de limite para reembolso
     const limitDate = new Date(payment.createdAt);
-    limitDate.setDate(limitDate.getDate() + 30);
+    limitDate.setDate(limitDate.getDate() + 7);
 
     if (new Date() > limitDate) {
       console.error(`Tentativa de reembolso após o prazo para o pagamento ${paymentId}`);
       return NextResponse.json({ 
-        error: "Reembolso permitido somente até 30 dias após a compra" 
+        error: "Reembolso permitido somente até 7 dias após a compra" 
       }, { status: 400 });
     }
 
@@ -68,14 +75,18 @@ export async function POST(req: Request) {
     let mpRefund;
     
     try {
+      // Calcular o valor total dos itens para reembolso
+      const totalAmount = payment.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+      
       mpRefund = await refundClient.create({
-        payment_id: payment.mpPaymentId,
+        payment_id: payment.mpPaymentId
       });
       console.log(`Reembolso criado no Mercado Pago: ${mpRefund.id}`);
     } catch (mpError: any) {
       console.error('Erro ao criar reembolso no Mercado Pago:', mpError);
       return NextResponse.json({ 
-        error: `Falha ao processar reembolso: ${mpError.message || 'Erro desconhecido'}` 
+        error: `Falha ao processar reembolso: ${mpError.message || 'Erro desconhecido'}`,
+        details: mpError.cause || undefined
       }, { status: 500 });
     }
 
@@ -94,7 +105,10 @@ export async function POST(req: Request) {
       // Atualizar status do pagamento para REFUNDED
       prisma.payment.update({
         where: { id: paymentId },
-        data: { status: 'REFUNDED' },
+        data: { 
+          status: 'REFUNDED',
+          updatedAt: new Date()
+        },
       }),
     ]);
 
@@ -102,44 +116,27 @@ export async function POST(req: Request) {
 
     // Revogar acesso imediatamente
     try {
-      if (payment.itemType === "COURSE" && payment.courseId) {
-        console.log(`Removendo acesso ao curso ${payment.courseId} para o usuário ${userId}`);
-        await prisma.enrollment.deleteMany({
-          where: {
-            userId: userId,
-            courseId: payment.courseId,
-          },
-        });
-        console.log(`Acesso ao curso ${payment.courseId} removido com sucesso`);
-      } else if (payment.itemType === "JOURNEY" && payment.journeyId) {
-        console.log(`Removendo acesso à jornada ${payment.journeyId} para o usuário ${userId}`);
-        await prisma.enrollment.deleteMany({
-          where: {
-            userId: userId,
-            journeyId: payment.journeyId,
-          },
-        });
-        console.log(`Acesso à jornada ${payment.journeyId} removido com sucesso`);
-      } else if (payment.itemType === "MULTIPLE") {
-        // Se for um pagamento múltiplo, remover acesso a todos os itens
-        const metadata = payment.metadata as PaymentMetadata | null;
-        const items = metadata?.items || [];
-        
-        console.log(`Removendo acesso a ${items.length} itens para o usuário ${userId}`);
-        
-        for (const item of items) {
-          if (item.type === 'course') {
+      console.log(`Iniciando remoção de acesso para ${payment.items.length} itens do usuário ${userId}`);
+      
+      await Promise.all(
+        payment.items.map(async (item) => {
+          if (item.itemType === 'COURSE' && item.courseId) {
+            console.log(`Removendo acesso ao curso ${item.courseId} para o usuário ${userId}`);
             await prisma.enrollment.deleteMany({
-              where: { userId, courseId: item.id }
+              where: { userId, courseId: item.courseId }
             });
-          } else if (item.type === 'journey') {
+            console.log(`Acesso ao curso ${item.courseId} removido com sucesso`);
+          } else if (item.itemType === 'JOURNEY' && item.journeyId) {
+            console.log(`Removendo acesso à jornada ${item.journeyId} para o usuário ${userId}`);
             await prisma.enrollment.deleteMany({
-              where: { userId, journeyId: item.id }
+              where: { userId, journeyId: item.journeyId }
             });
+            console.log(`Acesso à jornada ${item.journeyId} removido com sucesso`);
           }
-        }
-        console.log(`Acesso a ${items.length} itens removido com sucesso`);
-      }
+        })
+      );
+      
+      console.log(`Acesso a todos os itens revogado com sucesso`);
     } catch (accessError) {
       // Mesmo se falhar em remover o acesso, registra o erro mas não falha a operação
       // O webhook vai tentar novamente quando o status do pagamento for atualizado
@@ -148,14 +145,38 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ 
       success: true, 
-      refund,
+      data: {
+        refundId: refund.id,
+        status: refund.status,
+        amount: refund.amount,
+        paymentId: refund.paymentId,
+        items: payment.items.map(item => ({
+          id: item.courseId || item.journeyId,
+          type: item.itemType === 'COURSE' ? 'course' : 'journey',
+          title: item.title,
+          quantity: item.quantity,
+          price: item.price
+        }))
+      },
       message: 'Reembolso processado com sucesso. O acesso aos itens foi revogado.'
     });
   } catch (err: any) {
     console.error('Erro ao processar reembolso:', err);
+    
+    // Se for um erro de validação do Prisma, retornar mensagem mais amigável
+    if (err.code === 'P2002') {
+      return NextResponse.json({ 
+        error: "Já existe um reembolso em andamento para este pagamento"
+      }, { status: 400 });
+    }
+    
     return NextResponse.json({ 
       error: "Erro interno ao processar o reembolso",
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+      details: process.env.NODE_ENV === 'development' ? {
+        message: err.message,
+        code: err.code,
+        stack: err.stack
+      } : undefined
     }, { status: 500 });
   }
 }
