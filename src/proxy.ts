@@ -1,4 +1,3 @@
-// middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 
@@ -6,10 +5,9 @@ import { getToken } from "next-auth/jwt";
 const IGNORED_ROUTES = [
   "/api/mercado-pago/webhook",
   "/api/mercado-pago", // segurança extra
-  "/api/webhook",      // segurança extra
 ];
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // 1. Ignorar webhooks e toda API (PROTEGE 100%)
