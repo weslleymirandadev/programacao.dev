@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { FaCopy, FaExclamationTriangle, FaSpinner } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';

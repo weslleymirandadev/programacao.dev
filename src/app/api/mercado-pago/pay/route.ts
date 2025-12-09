@@ -64,8 +64,8 @@ export async function POST(req: Request) {
       console.log(`Tipo não fornecido para item ${item.id}, detectando automaticamente...`);
       
       const [course, journey] = await Promise.all([
-        prisma.course.findUnique({ where: { id: item.id }, select: { id: true } }),
-        prisma.journey.findUnique({ where: { id: item.id }, select: { id: true } })
+        prisma.course.findFirst({ where: { id: item.id }, select: { id: true } }),
+        prisma.journey.findFirst({ where: { id: item.id }, select: { id: true } })
       ]);
 
       if (course) {
