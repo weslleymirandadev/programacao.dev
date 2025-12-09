@@ -295,6 +295,23 @@ export async function POST(req: Request) {
 
     // Create payment record with items in a transaction
     let paymentRecord;
+    
+    // Preparar metadata com o método correto
+    const paymentMetadata = {
+      userId,
+      method: method, // Garantir que o método seja salvo corretamente
+      installments,
+      items: enrichedItems,
+      ...(response.point_of_interaction?.transaction_data && {
+        qr_code: response.point_of_interaction.transaction_data.qr_code,
+        qr_code_base64: response.point_of_interaction.transaction_data.qr_code_base64,
+        ticket_url: response.point_of_interaction.transaction_data.ticket_url
+      })
+    };
+    
+    console.log('Metadata que será salvo no pagamento:', JSON.stringify(paymentMetadata, null, 2));
+    console.log('Método do pagamento:', method);
+    
     paymentRecord = await prisma.$transaction(async (prisma) => {
       // 1. Create the payment
       const payment = await prisma.payment.create({
@@ -303,17 +320,7 @@ export async function POST(req: Request) {
           mpPaymentId,
           status: "PENDING",
           amount: calculatedTotalInCents,
-          metadata: {
-            userId,
-            method,
-            installments,
-            items: enrichedItems,
-            ...(response.point_of_interaction?.transaction_data && {
-              qr_code: response.point_of_interaction.transaction_data.qr_code,
-              qr_code_base64: response.point_of_interaction.transaction_data.qr_code_base64,
-              ticket_url: response.point_of_interaction.transaction_data.ticket_url
-            })
-          },
+          metadata: paymentMetadata,
           // Create related payment items
           items: {
             create: enrichedItems.map(item => {

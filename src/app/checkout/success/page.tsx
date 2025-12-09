@@ -10,7 +10,7 @@ import { useCart } from "@/context/CartContext";
 interface Payment {
   id: string;
   status: string;
-  metadata: {
+  metadata: string | {
     method: string;
     items: Array<{
       id: string;
@@ -64,6 +64,9 @@ function SuccessPageContent() {
         }
 
         const data = await response.json();
+        console.log('Dados do pagamento recebidos:', data);
+        console.log('Metadata do pagamento:', data.metadata);
+        console.log('Método do pagamento:', data.metadata?.method);
         setPayment(data);
         setError(null);
       } catch (err: any) {
@@ -127,9 +130,23 @@ function SuccessPageContent() {
     );
   }
 
-  const isPix = payment.metadata.method === 'pix';
+  // Check if payment method is PIX (handle both string and object metadata)
+  const metadata = typeof payment.metadata === 'string' 
+    ? JSON.parse(payment.metadata) 
+    : (payment.metadata || {});
+  
+  const isPix = metadata?.method === 'pix' || metadata?.method === 'PIX';
   const isPending = payment.status === 'PENDING' || payment.status === 'IN_PROCESS';
   const isApproved = payment.status === 'APPROVED';
+  
+  console.log('Verificação PIX:', {
+    rawMetadata: payment.metadata,
+    parsedMetadata: metadata,
+    method: metadata?.method,
+    isPix,
+    hasQrCode: !!metadata?.qr_code,
+    hasQrCodeBase64: !!metadata?.qr_code_base64
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -163,22 +180,22 @@ function SuccessPageContent() {
                 </dd>
               </div>
 
-              {isPix && isPending && payment.metadata.qr_code && (
+              {isPix && isPending && metadata?.qr_code && (
                 <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
                   <dt className="text-sm font-medium text-gray-500">PIX</dt>
                   <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
                     <div className="flex flex-col items-center space-y-4">
-                      {payment.metadata.qr_code_base64 && (
+                      {metadata?.qr_code_base64 && (
                         <div className="p-4 bg-white rounded-lg border border-gray-200">
                           <img
-                            src={`data:image/png;base64,${payment.metadata.qr_code_base64}`}
+                            src={`data:image/png;base64,${metadata.qr_code_base64}`}
                             alt="QR Code PIX"
                             className="w-64 h-64"
                           />
                         </div>
                       )}
 
-                      {payment.metadata.qr_code && (
+                      {metadata?.qr_code && (
                         <div className="w-full">
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Código PIX (copie e cole no seu banco)
@@ -188,13 +205,13 @@ function SuccessPageContent() {
                               <input
                                 type="text"
                                 readOnly
-                                value={payment.metadata.qr_code}
+                                value={metadata.qr_code}
                                 className="focus:ring-blue-500 focus:border-blue-500 block w-full rounded-none rounded-l-md sm:text-sm border-gray-300"
                               />
                             </div>
                             <button
                               type="button"
-                              onClick={() => copyToClipboard(payment.metadata.qr_code || '')}
+                              onClick={() => copyToClipboard(metadata.qr_code || '')}
                               className="inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 bg-gray-50 text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-r-md"
                             >
                               <FaCopy className="h-4 w-4" />
@@ -218,7 +235,7 @@ function SuccessPageContent() {
                 <dt className="text-sm font-medium text-gray-500">Itens</dt>
                 <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
                   <ul className="border border-gray-200 rounded-md divide-y divide-gray-200">
-                    {payment.metadata.items.map((item, index) => (
+                    {(metadata?.items || []).map((item: any, index: number) => (
                       <li key={index} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm">
                         <div className="w-0 flex-1 flex items-center">
                           <span className="ml-2 flex-1 w-0 truncate">
