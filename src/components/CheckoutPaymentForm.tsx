@@ -716,7 +716,7 @@ export function CheckoutPaymentForm({ amount, items }: CheckoutPaymentFormProps)
               </option>
               {Array.from({ length: 5 }).map((_, index) => {
                 const qty = index + 1;
-                const amountInReais = amount / 100; // Converter de centavos para reais
+                const amountInReais = amount; // Converter de centavos para reais
                 const perInstallment = getInstallmentPerPayment(amountInReais, qty);
                 const total = getInstallmentTotal(amountInReais, qty);
                 return (
@@ -729,7 +729,7 @@ export function CheckoutPaymentForm({ amount, items }: CheckoutPaymentFormProps)
             <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-black">
               {installments
                 ? `${installments}x de R$${formatPrice(getInstallmentPerPayment(
-                  amount / 100, // Converter de centavos para reais
+                  amount, // Converter de centavos para reais
                   installments,
                 ))}`
                 : "Selecionar"}
