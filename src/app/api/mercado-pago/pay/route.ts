@@ -42,6 +42,19 @@ export async function POST(req: Request) {
       );
     }
 
+    // Verify user exists before proceeding
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true }
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Usuário não encontrado" },
+        { status: 404 }
+      );
+    }
+
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
         { error: "Nenhum item no carrinho" },
@@ -147,17 +160,38 @@ export async function POST(req: Request) {
       binary_mode: true,
     };
 
-    const response = await payment.create({
-      body: mpData as any, requestOptions: {
-        idempotencyKey: crypto.randomUUID(),
-        meliSessionId: req.headers.get('X-meli-session-id')!
-      }
-    });
+    let response;
+    try {
+      response = await payment.create({
+        body: mpData as any,
+        requestOptions: {
+          idempotencyKey: crypto.randomUUID(),
+          meliSessionId: req.headers.get('X-meli-session-id')!
+        }
+      });
+    } catch (mpError: any) {
+      console.error('Erro ao criar pagamento no Mercado Pago:', mpError);
+      return NextResponse.json(
+        {
+          error: "Erro ao processar pagamento no gateway",
+          details: process.env.NODE_ENV === 'development' ? mpError.message : undefined
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!response?.id) {
+      return NextResponse.json(
+        { error: "Falha ao processar pagamento no gateway" },
+        { status: 500 }
+      );
+    }
 
     const mpPaymentId = response.id?.toString()!;
 
     // Create payment record with items in a transaction
-    const paymentRecord = await prisma.$transaction(async (prisma) => {
+    let paymentRecord;
+    paymentRecord = await prisma.$transaction(async (prisma) => {
       // 1. Create the payment
       const payment = await prisma.payment.create({
         data: {
