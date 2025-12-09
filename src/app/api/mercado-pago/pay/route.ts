@@ -2,32 +2,37 @@ import { NextResponse } from "next/server";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import prisma from "@/lib/prisma";
 
-async function validateItemsExist(items: Item[]) {
-  const itemValidations = await Promise.all(
-    items.map(async (item) => {
-      if (item.type === 'course') {
-        const exists = await prisma.course.findUnique({
-          where: { id: item.id },
-          select: { id: true }
-        });
-        return { ...item, exists: !!exists };
-      } else {
-        const exists = await prisma.journey.findUnique({
-          where: { id: item.id },
-          select: { id: true }
-        });
-        return { ...item, exists: !!exists };
-      }
-    })
-  );
-
-  const invalidItems = itemValidations.filter(item => !item.exists);
-  if (invalidItems.length > 0) {
-    const invalidIds = invalidItems.map(item => `${item.type} ID: ${item.id}`).join(', ');
-    throw new Error(`Os seguintes itens não foram encontrados: ${invalidIds}`);
+async function validateItem(item: Item) {
+  if (item.type === 'course') {
+    const course = await prisma.course.findUnique({
+      where: { id: item.id },
+      select: { id: true, title: true, price: true, imageUrl: true }
+    });
+    if (!course) {
+      throw new Error(`Curso não encontrado: ${item.id}`);
+    }
+    return {
+      ...item,
+      title: course.title,
+      price: course.price,
+      imageUrl: course.imageUrl
+    };
+  } else {
+    const journey = await prisma.journey.findUnique({
+      where: { id: item.id },
+      select: { id: true, title: true, price: true, imageUrl: true }
+    });
+    if (!journey) {
+      throw new Error(`Jornada não encontrada: ${item.id}`);
+    }
+    return {
+      ...item,
+      title: journey.title,
+      price: journey.price,
+      imageUrl: journey.imageUrl,
+      type: 'journey' as const
+    };
   }
-
-  return itemValidations;
 }
 
 const mp = new MercadoPagoConfig({
@@ -75,9 +80,10 @@ export async function POST(req: Request) {
       );
     }
 
+    // Validate and enrich items with database data
+    let enrichedItems;
     try {
-      // Validate that all items exist in the database
-      await validateItemsExist(items);
+      enrichedItems = await Promise.all(items.map(validateItem));
     } catch (error) {
       console.error('Erro ao validar itens:', error);
       return NextResponse.json(
@@ -86,38 +92,8 @@ export async function POST(req: Request) {
       );
     }
 
-
-    // Buscar informações adicionais dos itens no banco de dados
-    const enrichedItems = await Promise.all(
-      items.map(async (item: Item) => {
-        if (item.type === 'course') {
-          const course = await prisma.course.findUnique({
-            where: { id: item.id },
-            select: { title: true, price: true, imageUrl: true }
-          });
-          return {
-            ...item,
-            title: course?.title || item.title,
-            price: course?.price || item.price,
-            imageUrl: course?.imageUrl
-          };
-        } else {
-          const journey = await prisma.journey.findUnique({
-            where: { id: item.id },
-            select: { title: true, price: true, imageUrl: true }
-          });
-          return {
-            ...item,
-            title: journey ? `Jornada: ${journey.title}` : item.title,
-            price: journey?.price || item.price,
-            imageUrl: journey?.imageUrl
-          };
-        }
-      })
-    );
-
     // Calcular o total se não fornecido (em centavos)
-    const calculatedTotalInCents = total || enrichedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const calculatedTotalInCents = total || enrichedItems.reduce((sum, item) => sum + (item.price! * item.quantity), 0);
     // Mercado Pago espera valores em reais (float), então convertemos de centavos para reais
     const calculatedTotalInReais = calculatedTotalInCents / 100;
     const description = enrichedItems.length === 1
@@ -176,7 +152,7 @@ export async function POST(req: Request) {
           description: item.type === 'course' ? 'Curso' : 'Jornada',
           quantity: item.quantity,
           // Mercado Pago espera valores em reais, converter de centavos
-          unit_price: item.price / 100,
+          unit_price: item.price! / 100,
           category_id: item.type.toUpperCase(),
           ...(item.imageUrl && { picture_url: item.imageUrl }),
         })),
@@ -239,11 +215,19 @@ export async function POST(req: Request) {
           items: {
             create: enrichedItems.map(item => {
               const isCourse = item.type === 'course';
+              const price = Number(item.price); // Ensure it's a number
+              if (isNaN(price)) {
+                throw new Error(`Preço inválido para ${isCourse ? 'curso' : 'jornada'}: ${item.id}`);
+              }
+
               return {
                 itemType: isCourse ? 'COURSE' : 'JOURNEY',
-                [isCourse ? 'courseId' : 'journeyId']: item.id,
+                ...(isCourse
+                  ? { courseId: item.id }
+                  : { journeyId: item.id }
+                ),
                 quantity: item.quantity,
-                price: item.price,
+                price: price, // Now definitely a number
                 title: item.title,
                 description: isCourse ? 'Curso' : 'Jornada',
               };
