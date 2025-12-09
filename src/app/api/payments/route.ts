@@ -25,10 +25,17 @@ export async function GET(request: Request) {
     const payments = await prisma.payment.findMany({
       where: {
         userId: user.id,
-        ...(courseId ? { courseId } : {})
+        ...(courseId ? {
+          items: {
+            some: {
+              courseId: courseId
+            }
+          }
+        } : {})
       },
       include: {
-        refunds: true
+        refunds: true,
+        items: true
       },
       orderBy: {
         createdAt: 'desc'
