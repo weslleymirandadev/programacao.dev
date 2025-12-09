@@ -130,7 +130,6 @@ export async function POST(req: Request) {
         })),
       },
       additional_info: {
-        device_session_id: req.headers.get('X-meli-session-id')!,
         items: enrichedItems.map(item => ({
           id: item.id,
           title: item.title,
