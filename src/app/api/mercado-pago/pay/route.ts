@@ -147,34 +147,46 @@ export async function POST(req: Request) {
 
     const response = await payment.create({ body: mpData as any });
 
-    // Salvar no banco de dados
-    const paymentRecord = await prisma.payment.create({
-      data: {
-        userId,
-        mpPaymentId: response.id?.toString()!,
-        status: "PENDING",
-        // Armazenar amount em centavos no banco de dados
-        amount: calculatedTotalInCents,
-        itemType: enrichedItems.length === 1 
-          ? enrichedItems[0].type === 'course' ? 'COURSE' : 'JOURNEY'
-          : 'MULTIPLE',
-        courseId: enrichedItems.length === 1 && enrichedItems[0].type === 'course' 
-          ? enrichedItems[0].id 
-          : null,
-        journeyId: enrichedItems.length === 1 && enrichedItems[0].type === 'journey' 
-          ? enrichedItems[0].id 
-          : null,
-        metadata: {
-          method,
-          installments,
-          items: enrichedItems,
-          ...(response.point_of_interaction?.transaction_data && {
-            qr_code: response.point_of_interaction.transaction_data.qr_code,
-            qr_code_base64: response.point_of_interaction.transaction_data.qr_code_base64,
-            ticket_url: response.point_of_interaction.transaction_data.ticket_url
-          })
-        },
-      }
+    // Salvar no banco de dados usando upsert para evitar duplicação
+    const mpPaymentId = response.id?.toString()!;
+    const paymentData = {
+      userId,
+      status: "PENDING" as const,
+      // Armazenar amount em centavos no banco de dados
+      amount: calculatedTotalInCents,
+      itemType: (enrichedItems.length === 1 
+        ? enrichedItems[0].type === 'course' ? 'COURSE' : 'JOURNEY'
+        : 'MULTIPLE') as 'COURSE' | 'JOURNEY' | 'MULTIPLE',
+      courseId: enrichedItems.length === 1 && enrichedItems[0].type === 'course' 
+        ? enrichedItems[0].id 
+        : null,
+      journeyId: enrichedItems.length === 1 && enrichedItems[0].type === 'journey' 
+        ? enrichedItems[0].id 
+        : null,
+      metadata: {
+        method,
+        installments,
+        items: enrichedItems,
+        ...(response.point_of_interaction?.transaction_data && {
+          qr_code: response.point_of_interaction.transaction_data.qr_code,
+          qr_code_base64: response.point_of_interaction.transaction_data.qr_code_base64,
+          ticket_url: response.point_of_interaction.transaction_data.ticket_url
+        })
+      },
+    };
+
+    const paymentRecord = await prisma.payment.upsert({
+      where: { mpPaymentId },
+      create: {
+        ...paymentData,
+        mpPaymentId,
+      },
+      update: {
+        // Atualiza apenas os campos que podem mudar em caso de tentativa de recriação
+        status: paymentData.status,
+        metadata: paymentData.metadata,
+        createdAt: new Date()
+      },
     });
 
     return NextResponse.json({
