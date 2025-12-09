@@ -52,15 +52,32 @@ export function CartProvider({ children }: CartProviderProps) {
 
   // Load cart from server or localStorage on mount
   useEffect(() => {
+    if (initializedRef.current) return; // Evitar múltiplas execuções
+    
     const loadCart = async () => {
       if (status === 'authenticated') {
         try {
           const response = await fetch('/api/cart');
           if (response.ok) {
             const { items: serverItems } = await response.json();
-            // Only update if we have server items and no local items to avoid overwriting
-            if (serverItems?.length > 0) {
-              setItems(serverItems);
+            // Normalize server items to match CartItem format
+            const normalizedItems = (serverItems || [])
+              .map((item: any) => {
+                const itemId = item.courseId ?? item.journeyId;
+                if (!itemId || item.price == null || !item.title) return null;
+                
+                return {
+                  id: itemId,
+                  title: item.title,
+                  price: item.price,
+                  type: item.itemType === "JOURNEY" ? "jornada" as CartItemType : "curso" as CartItemType,
+                };
+              })
+              .filter(Boolean) as CartItem[];
+            
+            if (normalizedItems.length > 0) {
+              setItems(normalizedItems);
+              initializedRef.current = true;
               return; // Skip localStorage check
             }
           }
@@ -81,6 +98,8 @@ export function CartProvider({ children }: CartProviderProps) {
           console.error('Failed to parse cart from localStorage', error);
         }
       }
+      
+      initializedRef.current = true;
     };
 
     loadCart();
@@ -274,62 +293,67 @@ export function CartProvider({ children }: CartProviderProps) {
               id,
               title: item.title,
               price: item.price,
-              type: item.itemType === "JOURNEY" ? ("journey" as CartItemType) : ("course" as CartItemType),
+              type: item.itemType === "JOURNEY" ? ("jornada" as CartItemType) : ("curso" as CartItemType),
             } as CartItem;
           })
           .filter(Boolean) as CartItem[];
 
-        // Mescla guest (items) + serverCart por (type,id), sem quantidade
-        const mergedMap = new Map<string, CartItem>();
+        // Pega items atuais do estado (sem usar items diretamente para evitar loop)
+        setItems(currentItems => {
+          // Mescla guest (currentItems) + serverCart por (type,id), sem quantidade
+          const mergedMap = new Map<string, CartItem>();
 
-        function mergeSource(list: CartItem[]) {
-          for (const item of list) {
-            const key = `${item.type}:${item.id}`;
-            if (!mergedMap.has(key)) {
-              mergedMap.set(key, { ...item });
+          function mergeSource(list: CartItem[]) {
+            for (const item of list) {
+              const key = `${item.type}:${item.id}`;
+              if (!mergedMap.has(key)) {
+                mergedMap.set(key, { ...item });
+              }
             }
           }
-        }
 
-        mergeSource(serverCart);
-        mergeSource(items);
+          mergeSource(serverCart);
+          mergeSource(currentItems);
 
-        const merged = Array.from(mergedMap.values());
-        setItems(merged);
+          const merged = Array.from(mergedMap.values());
+          
+          // Envia carrinho mesclado para o servidor (async, não bloqueia)
+          fetch("/api/cart", {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              items: merged.map((item) => ({
+                itemType: item.type === "jornada" ? "JOURNEY" : "COURSE",
+                courseId: item.type === "curso" ? item.id : null,
+                journeyId: item.type === "jornada" ? item.id : null,
+                quantity: 1,
+              })),
+            }),
+          }).catch(console.error);
 
-        // Limpa carrinho guest em localStorage após migração
-        try {
-          if (typeof window !== "undefined") {
-            window.localStorage.removeItem(STORAGE_KEY);
+          // Limpa carrinho guest em localStorage após migração
+          try {
+            if (typeof window !== "undefined") {
+              window.localStorage.removeItem(STORAGE_KEY);
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
-        }
 
-        // Envia carrinho mesclado para o servidor
-        await fetch("/api/cart", {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            items: merged.map((item) => ({
-              itemType: item.type === "jornada" ? "JOURNEY" : "COURSE",
-              courseId: item.type === "curso" ? item.id : null,
-              journeyId: item.type === "jornada" ? item.id : null,
-              quantity: 1,
-            })),
-          }),
+          hasSyncedWithServerRef.current = true;
+          
+          return merged;
         });
-
-        hasSyncedWithServerRef.current = true;
       } catch {
         // Em caso de erro, mantém apenas o carrinho em memória/localStorage
+        hasSyncedWithServerRef.current = true; // Marca como sincronizado mesmo em caso de erro para evitar loops
       }
     }
 
     void syncWithServer();
-  }, [status, items]);
+  }, [status]); // Removido 'items' das dependências para evitar loop infinito
 
   // Total is kept in cents for internal calculations
   const totalInCents = useMemo(
