@@ -222,7 +222,7 @@ function SuccessPageContent() {
                       <li key={index} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm">
                         <div className="w-0 flex-1 flex items-center">
                           <span className="ml-2 flex-1 w-0 truncate">
-                            {item.quantity}x {item.title}
+                            {item.title}
                           </span>
                         </div>
                         <div className="ml-4 shrink-0">
