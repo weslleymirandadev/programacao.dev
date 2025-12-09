@@ -71,7 +71,7 @@ export default function CheckoutCartPage() {
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-gray-900">{item.title}</p>
                   <p className="text-xs uppercase text-gray-400">
-                    {item.type === "journey" ? "Jornada" : "Curso"}
+                    {item.type === "jornada" ? "Jornada" : "Curso"}
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
@@ -80,7 +80,7 @@ export default function CheckoutCartPage() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => removeItem(item.id)}
+                    onClick={() => removeItem(item.id, item.type)}
                     className="text-xs font-medium text-red-500 hover:text-red-600"
                   >
                     Remover

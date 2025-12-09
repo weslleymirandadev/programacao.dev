@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { FaCopy, FaExclamationTriangle, FaSpinner } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
+import { useCart } from "@/context/CartContext";
 
 interface Payment {
   id: string;
@@ -34,10 +35,10 @@ export default function SuccessPage() {
 
 function SuccessPageContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const [payment, setPayment] = useState<Payment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { clearCart } = useCart();
 
   const paymentId = searchParams.get('payment_id');
 
@@ -85,6 +86,13 @@ function SuccessPageContent() {
     navigator.clipboard.writeText(text);
     toast.success('Código copiado para a área de transferência!');
   };
+
+  useEffect(() => {
+    if (payment?.status === "approved") {
+      clearCart();
+    }
+  }, [payment?.status, clearCart]);
+
 
   if (loading) {
     return (
