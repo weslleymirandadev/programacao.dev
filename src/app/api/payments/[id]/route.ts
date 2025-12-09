@@ -24,7 +24,7 @@ export async function GET(
 
     const payment = await prisma.payment.findFirst({
       where: {
-        id: (await params).id,
+        mpPaymentId: (await params).id,
         userId: session.user.id,
       },
     });
