@@ -96,23 +96,86 @@ async function handlePaymentStatusUpdate(
   userId: string,
   items: PaymentItem[]
 ) {
-  await prisma.payment.updateMany({
-    where: { mpPaymentId: paymentId },
-    data: { status },
-  });
+  try {
+    await ensureUserExists(userId);
+    
+    // Atualizar status do pagamento
+    const payment = await prisma.payment.upsert({
+      where: { mpPaymentId: paymentId },
+      create: {
+        mpPaymentId: paymentId,
+        status,
+        amount: 0, // Será atualizado abaixo se necessário
+        user: { connect: { id: userId } },
+        itemType: items.length === 1 
+          ? items[0].type === 'journey' ? 'JOURNEY' : 'COURSE'
+          : 'MULTIPLE',
+        metadata: { items } as any, // Garantir que os itens sejam salvos no metadata
+      },
+      update: { 
+        status,
+        metadata: { items } as any, // Atualizar os itens no metadata também
+      },
+      include: { 
+        refunds: true,
+        course: items.some(i => i.type === 'course') ? true : undefined,
+        journey: items.some(i => i.type === 'journey') ? true : undefined,
+      }
+    });
 
-  if (['CANCELLED', 'REFUNDED', 'FAILED'].includes(status)) {
-    for (const item of items) {
-      if (item.type === 'course') {
-        await prisma.enrollment.deleteMany({
-          where: { userId, courseId: item.id },
+    // Se for um reembolso, remover acesso aos itens
+    if (status === 'REFUNDED' || status === 'CANCELLED') {
+      const itemsToProcess = items.length > 0 
+        ? items 
+        : (payment as any).metadata?.items || [];
+
+      for (const item of itemsToProcess) {
+        try {
+          if (item.type === 'course') {
+            const courseId = item.id || (payment as any).courseId;
+            if (courseId) {
+              await prisma.enrollment.deleteMany({
+                where: { 
+                  userId,
+                  courseId: courseId
+                }
+              });
+              console.log(`Acesso removido do curso ${courseId} para o usuário ${userId}`);
+            }
+          } else if (item.type === 'journey') {
+            const journeyId = item.id || (payment as any).journeyId;
+            if (journeyId) {
+              await prisma.enrollment.deleteMany({
+                where: { 
+                  userId,
+                  journeyId: journeyId
+                }
+              });
+              console.log(`Acesso removido da jornada ${journeyId} para o usuário ${userId}`);
+            }
+          }
+        } catch (error) {
+          console.error(`Erro ao remover acesso para item ${item.id} (${item.type}):`, error);
+        }
+      }
+
+      // Atualizar status do reembolso se existir
+      if (payment.refunds && payment.refunds.length > 0) {
+        await prisma.refund.updateMany({
+          where: { 
+            paymentId: payment.id,
+            status: 'PENDING'
+          },
+          data: { 
+            status: 'COMPLETED',
+          }
         });
-      } else if (item.type === 'journey') {
-        await prisma.enrollment.deleteMany({
-          where: { userId, journeyId: item.id },
-        });
+        console.log(`Status do reembolso atualizado para COMPLETED para o pagamento ${paymentId}`);
       }
     }
+  } catch (error) {
+    console.error('Erro ao processar atualização de status de pagamento:', error);
+    throw error;
   }
 }
 
