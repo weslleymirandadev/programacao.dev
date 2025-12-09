@@ -679,8 +679,7 @@ export function CheckoutPaymentForm({ amount, items }: CheckoutPaymentFormProps)
             <select
               onKeyDown={handleKeyDown}
               {...register("installments", { valueAsNumber: true })}
-              className={`peer h-10 w-full rounded-md border px-3 py-5 text-sm text-transparent outline-none transition-colors border-gray-300 focus:border-green-600 focus:ring-1 focus:ring-green-600 ${errors.installments ? "border-red-400" : ""
-                }`}
+              className={`peer h-10 w-full rounded-md border px-3 py-5 text-sm text-transparent outline-none transition-colors border-gray-300 focus:border-green-600 focus:ring-1 focus:ring-green-600 ${errors.installments ? "border-red-400" : "" }`}
             >
               <option value="" className="text-black">
                 Selecionar
@@ -689,7 +688,6 @@ export function CheckoutPaymentForm({ amount, items }: CheckoutPaymentFormProps)
                 const qty = index + 1;
                 const amountInReais = amount / 100; // Converter de centavos para reais
                 const perInstallment = getInstallmentPerPayment(amountInReais, qty);
-                if (perInstallment < 5) return null;
                 const total = getInstallmentTotal(amountInReais, qty);
                 return (
                   <option key={qty} value={qty} className="text-black">
