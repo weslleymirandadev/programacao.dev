@@ -73,22 +73,26 @@ model Session {
 }
 
 model Course {
-  id           String       @id @default(cuid())
-  title        String
-  description  String
-  imageUrl     String?
-  price        Int?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  instructorId String?
-  level        String
-  cartItems    CartItem[]
-  instructor   User?        @relation("CourseInstructor", fields: [instructorId], references: [id])
-  posts        CoursePost[]
-  enrollments  Enrollment[]
-  forumPosts   ForumPost[]
-  modules      Module[]
-  payments     Payment[]
+  id              String         @id @default(cuid())
+  title           String
+  description     String
+  imageUrl        String?
+  price           Int?
+  discountPrice   Int            @default(0)
+  discountEnabled Boolean        @default(false)
+  public          Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  instructorId    String?
+  level           String
+  cartItems       CartItem[]
+  instructor      User?          @relation("CourseInstructor", fields: [instructorId], references: [id])
+  posts           CoursePost[]
+  enrollments     Enrollment[]
+  forumPosts      ForumPost[]
+  modules         Module[]
+  payments        Payment[]
+  journeys        JourneyCourse[]
 }
 
 model Module {
@@ -152,13 +156,27 @@ model CoursePost {
 model Journey {
   id          String          @id @default(cuid())
   title       String
+  imageUrl    String?
   description String
   price       Int?
+  public      Boolean         @default(false)
   cartItems   CartItem[]
   enrollments Enrollment[]
   forumPosts  ForumPost[]
   modules     JourneyModule[]
   payments    Payment[]
+  courses     JourneyCourse[]
+}
+
+model JourneyCourse {
+  id        String   @id @default(cuid())
+  journeyId String
+  courseId  String
+  order     Int
+  journey   Journey  @relation(fields: [journeyId], references: [id])
+  course    Course   @relation(fields: [courseId], references: [id])
+  
+  @@unique([journeyId, courseId])
 }
 
 model JourneyModule {
@@ -235,6 +253,7 @@ model Payment {
   mpPaymentId String          @unique
   status      String
   amount      Int
+  metadata    Json?
   createdAt   DateTime        @default(now())
   itemType    PaymentItemType
   journeyId   String?
@@ -268,4 +287,5 @@ enum UserRole {
 enum PaymentItemType {
   COURSE
   JOURNEY
+  MULTIPLE
 }
