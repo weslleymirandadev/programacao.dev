@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import prisma from "@/lib/prisma";
 
+type PaymentItemType = 'COURSE' | 'JOURNEY' | 'MULTIPLE';
+
 const mp = new MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN!,
   options: {
@@ -19,34 +21,6 @@ interface Item {
   price: number;
   imageUrl?: string;
 }
-
-async function validateCartItems(userId: string, items: Array<{ type: string; id: string }>) {
-  const validationResults = await Promise.all(
-    items.map(async (item) => {
-      if (item.type === 'course') {
-        const enrollment = await prisma.enrollment.findFirst({
-          where: {
-            userId,
-            courseId: item.id,
-          },
-        });
-        return !enrollment; // Valid if no enrollment exists
-      } else if (item.type === 'journey') {
-        const enrollment = await prisma.enrollment.findFirst({
-          where: {
-            userId,
-            journeyId: item.id,
-          },
-        });
-        return !enrollment; // Valid if no enrollment exists
-      }
-      return false;
-    })
-  );
-
-  return validationResults.every(Boolean);
-}
-
 
 export async function POST(req: Request) {
   try {
@@ -74,16 +48,6 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-
-    // const isValidCart = await validateCartItems(userId, items);
-
-    // if (!isValidCart) {
-    //   return NextResponse.json(
-    //     { error: "Alguns itens do seu carrinho já foram adquiridos. Atualize seu carrinho e tente novamente." },
-    //     { status: 400 }
-    //   );
-    // }
-
 
     // Buscar informações adicionais dos itens no banco de dados
     const enrichedItems = await Promise.all(
@@ -164,7 +128,7 @@ export async function POST(req: Request) {
           type: item.type,
           title: item.title,
           price: item.price,
-          quantity: item.quantity
+          quantity: 1
         })),
       },
       additional_info: {
@@ -192,25 +156,36 @@ export async function POST(req: Request) {
 
     // Salvar no banco de dados usando upsert para evitar duplicação
     const mpPaymentId = response.id?.toString()!;
+    // Get all course and journey items
+    const courseItems = enrichedItems.filter(item => item.type === 'course');
+    const journeyItems = enrichedItems.filter(item => item.type === 'journey');
+    
+    // Get all course and journey IDs
+    const courseIds = courseItems.map(item => item.id);
+    const journeyIds = journeyItems.map(item => item.id);
+
+    // Determine the main item type for the payment
+    const itemType: PaymentItemType = enrichedItems.length === 1
+      ? enrichedItems[0].type === 'course' ? 'COURSE' : 'JOURNEY'
+      : 'MULTIPLE';
+
     const paymentData = {
       userId,
       status: "PENDING" as const,
-      // Armazenar amount em centavos no banco de dados
       amount: calculatedTotalInCents,
-      itemType: (enrichedItems.length === 1
-        ? enrichedItems[0].type === 'course' ? 'COURSE' : 'JOURNEY'
-        : 'MULTIPLE') as 'COURSE' | 'JOURNEY' | 'MULTIPLE',
-      courseId: enrichedItems.length === 1 && enrichedItems[0].type === 'course'
-        ? enrichedItems[0].id
-        : null,
-      journeyId: enrichedItems.length === 1 && enrichedItems[0].type === 'journey'
-        ? enrichedItems[0].id
-        : null,
+      itemType,
+      // For backward compatibility, set the first course/journey ID if it's a single type purchase
+      courseId: courseItems.length > 0 ? courseItems[0].id : null,
+      journeyId: journeyItems.length > 0 ? journeyItems[0].id : null,
       metadata: {
         userId,
         method,
         installments,
+        // Store all items with their details
         items: enrichedItems,
+        // Store all course and journey IDs for reference
+        courseIds,
+        journeyIds,
         ...(response.point_of_interaction?.transaction_data && {
           qr_code: response.point_of_interaction.transaction_data.qr_code,
           qr_code_base64: response.point_of_interaction.transaction_data.qr_code_base64,
