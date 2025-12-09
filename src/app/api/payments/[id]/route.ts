@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
   
@@ -19,7 +19,7 @@ export async function GET(
   try {
     const payment = await prisma.payment.findUnique({
       where: {
-        id: params.id,
+        id: (await params).id,
         userId: session.user.id, // Ensure user can only access their own payments
       },
     });
