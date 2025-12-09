@@ -2,6 +2,34 @@ import { NextResponse } from "next/server";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import prisma from "@/lib/prisma";
 
+async function validateItemsExist(items: Item[]) {
+  const itemValidations = await Promise.all(
+    items.map(async (item) => {
+      if (item.type === 'course') {
+        const exists = await prisma.course.findUnique({
+          where: { id: item.id },
+          select: { id: true }
+        });
+        return { ...item, exists: !!exists };
+      } else {
+        const exists = await prisma.journey.findUnique({
+          where: { id: item.id },
+          select: { id: true }
+        });
+        return { ...item, exists: !!exists };
+      }
+    })
+  );
+
+  const invalidItems = itemValidations.filter(item => !item.exists);
+  if (invalidItems.length > 0) {
+    const invalidIds = invalidItems.map(item => `${item.type} ID: ${item.id}`).join(', ');
+    throw new Error(`Os seguintes itens não foram encontrados: ${invalidIds}`);
+  }
+
+  return itemValidations;
+}
+
 const mp = new MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN!,
   options: {
@@ -46,6 +74,18 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    try {
+      // Validate that all items exist in the database
+      await validateItemsExist(items);
+    } catch (error) {
+      console.error('Erro ao validar itens:', error);
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Erro ao validar itens' },
+        { status: 400 }
+      );
+    }
+
 
     // Buscar informações adicionais dos itens no banco de dados
     const enrichedItems = await Promise.all(
