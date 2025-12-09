@@ -142,10 +142,6 @@ export default function Home() {
       <button
         onClick={(e) => {
           e.preventDefault();
-          if (!session) {
-            router.push(`/signin?callbackUrl=/`);
-            return;
-          }
           handleAddToCart(
             {
               id: item.id,

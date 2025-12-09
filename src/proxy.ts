@@ -42,7 +42,9 @@ export async function proxy(req: NextRequest) {
     pathname.startsWith("/forgot-password") ||
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/curso/") ||
+    pathname.startsWith("/cursos/") ||
     pathname.startsWith("/jornada/") ||
+    pathname.startsWith("/jornadas/") ||
     pathname.startsWith("/api/public") ||
     pathname === "/" ||
     isPublicApiRoute;
