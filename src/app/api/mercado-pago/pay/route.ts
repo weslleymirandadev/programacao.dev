@@ -54,9 +54,24 @@ export async function POST(req: Request) {
     const itemsWithTypes = await Promise.all(items.map(async (item) => {
       // If type is already provided, normalize it
       if (item.type) {
+        const normalizedType = item.type === 'course' ? 'curso' : item.type === 'journey' ? 'jornada' : item.type;
+        
+        // Validate that the item exists with the provided type
+        if (normalizedType === 'curso') {
+          const course = await prisma.course.findUnique({ where: { id: item.id }, select: { id: true } });
+          if (!course) {
+            throw new Error(`Curso com ID ${item.id} não encontrado no banco de dados`);
+          }
+        } else if (normalizedType === 'jornada') {
+          const journey = await prisma.journey.findUnique({ where: { id: item.id }, select: { id: true } });
+          if (!journey) {
+            throw new Error(`Jornada com ID ${item.id} não encontrada no banco de dados`);
+          }
+        }
+        
         return {
           ...item,
-          type: item.type === 'course' ? 'curso' : item.type === 'journey' ? 'jornada' : item.type
+          type: normalizedType
         };
       }
 
@@ -64,8 +79,8 @@ export async function POST(req: Request) {
       console.log(`Tipo não fornecido para item ${item.id}, detectando automaticamente...`);
       
       const [course, journey] = await Promise.all([
-        prisma.course.findFirst({ where: { id: item.id }, select: { id: true } }),
-        prisma.journey.findFirst({ where: { id: item.id }, select: { id: true } })
+        prisma.course.findUnique({ where: { id: item.id }, select: { id: true } }),
+        prisma.journey.findUnique({ where: { id: item.id }, select: { id: true } })
       ]);
 
       if (course) {
@@ -75,7 +90,20 @@ export async function POST(req: Request) {
         console.log(`Item ${item.id} identificado como JORNADA`);
         return { ...item, type: 'jornada' };
       } else {
-        throw new Error(`Item ${item.id} não encontrado nem como curso nem como jornada`);
+        // Tentar buscar em CartItem para ver se é um ID de carrinho incorreto
+        const cartItem = await prisma.cartItem.findUnique({
+          where: { id: item.id },
+          select: { courseId: true, journeyId: true }
+        });
+        
+        if (cartItem) {
+          const actualId = cartItem.courseId || cartItem.journeyId;
+          if (actualId) {
+            throw new Error(`ID fornecido (${item.id}) é um ID de item do carrinho. Use o ID do curso/jornada (${actualId}) em vez disso.`);
+          }
+        }
+        
+        throw new Error(`Item ${item.id} não encontrado nem como curso nem como jornada. Verifique se o ID está correto.`);
       }
     }));
 

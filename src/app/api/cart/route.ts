@@ -33,7 +33,7 @@ export async function GET() {
   }
 
   const items = cart.items.map((item) => ({
-    id: item.id,
+    id: item.courseId ?? item.journeyId ?? item.id, // Use courseId or journeyId, fallback to CartItem id
     itemType: item.itemType,
     quantity: item.quantity,
     courseId: item.courseId,
