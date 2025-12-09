@@ -134,16 +134,25 @@ export function CartProvider({ children }: CartProviderProps) {
     // 4. Update server if authenticated
     if (status === 'authenticated') {
       try {
+        // First, get the current cart
+        const cartResponse = await fetch('/api/cart');
+        const { items: currentItems = [] } = await cartResponse.json();
+        
+        // Create the new item in the format expected by the API
+        const newItem = {
+          itemType: item.type === 'jornada' ? 'JOURNEY' : 'COURSE',
+          [item.type === 'jornada' ? 'journeyId' : 'courseId']: item.id,
+          quantity: 1
+        };
+        
+        // Add the new item to the existing items
+        const updatedItems = [...currentItems, newItem];
+        
+        // Send the complete updated cart
         const response = await fetch('/api/cart', {
-          method: 'POST',
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            itemId: item.id,
-            itemType: item.type === 'jornada' ? 'JOURNEY' : 'COURSE',
-            quantity: 1,
-            price: item.price,
-            title: item.title
-          })
+          body: JSON.stringify({ items: updatedItems })
         });
         
         if (!response.ok) {
