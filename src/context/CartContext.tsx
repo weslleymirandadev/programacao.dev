@@ -86,7 +86,15 @@ export function CartProvider({ children }: CartProviderProps) {
   }, [items]);
 
   async function addItem(item: CartItem) {
-    // Check if user already has access to this item
+    // 1. Check if item is already in cart
+    const alreadyInCart = items.some(i => i.id === item.id && i.type === item.type);
+    if (alreadyInCart) {
+      toast.error('Este item já está no seu carrinho');
+      openCart();
+      return;
+    }
+
+    // 2. Check if user already has access to this item
     if (status === "authenticated") {
       try {
         const response = await fetch(`/api/user/has-access?type=${item.type}&id=${item.id}`);
@@ -102,11 +110,8 @@ export function CartProvider({ children }: CartProviderProps) {
       }
     }
 
-    setItems((prev) => {
-      const exists = prev.some((i) => i.id === item.id && i.type === item.type);
-      if (exists) return prev;
-      return [...prev, { ...item, price: item.price }];
-    });
+    // 3. If we get here, it's safe to add the item
+    setItems(prev => [...prev, { ...item, price: item.price }]);
     openCart();
   }
 
