@@ -127,6 +127,16 @@ export async function POST(req: Request) {
       binary_mode: true,
     };
 
+    // Log para debug
+    console.log('Criando pagamento com método:', method);
+    if (method === 'pix') {
+      console.log('Dados do pagamento PIX:', {
+        transaction_amount: calculatedTotalInReais,
+        payer_email: payer.email,
+        payer_cpf: payer.cpf?.replace(/\D/g, ''),
+      });
+    }
+
     let response;
     try {
       response = await payment.create({
@@ -136,8 +146,21 @@ export async function POST(req: Request) {
           meliSessionId: req.headers.get('X-meli-session-id')!
         }
       });
+      
+      console.log('Resposta do Mercado Pago:', {
+        id: response.id,
+        status: response.status,
+        payment_method_id: response.payment_method_id,
+        has_point_of_interaction: !!response.point_of_interaction
+      });
     } catch (mpError: any) {
       console.error('Erro ao criar pagamento no Mercado Pago:', mpError);
+      console.error('Detalhes do erro:', {
+        message: mpError.message,
+        cause: mpError.cause,
+        status: mpError.status,
+        statusCode: mpError.statusCode
+      });
       return NextResponse.json(
         {
           error: "Erro ao processar pagamento no gateway",
@@ -148,6 +171,7 @@ export async function POST(req: Request) {
     }
 
     if (!response?.id) {
+      console.error('Resposta do Mercado Pago sem ID:', response);
       return NextResponse.json(
         { error: "Falha ao processar pagamento no gateway" },
         { status: 500 }

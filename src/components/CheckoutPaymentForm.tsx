@@ -468,12 +468,19 @@ export function CheckoutPaymentForm({ amount, items }: CheckoutPaymentFormProps)
         throw new Error(paymentResult.error || "Erro ao processar pagamento");
       }
 
+      // Validate that we have a payment ID
+      if (!paymentResult.id) {
+        console.error('Resposta da API sem ID:', paymentResult);
+        throw new Error("Resposta inválida da API: ID do pagamento não encontrado");
+      }
+
       // Only pass the payment ID to the success page
       router.push(`/checkout/success?payment_id=${paymentResult.id}`);
 
     } catch (error: any) {
       console.error('Erro no pagamento PIX:', error);
       toast.error(error.message || "Ocorreu um erro ao processar seu pagamento. Por favor, tente novamente.");
+      // Não redireciona em caso de erro - mantém o usuário na página de checkout
     } finally {
       setProcessing(false);
     }
