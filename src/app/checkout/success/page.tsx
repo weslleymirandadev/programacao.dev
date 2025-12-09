@@ -1,20 +1,30 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCart } from "@/context/CartContext";
 import Link from "next/link";
-import { FaCheckCircle, FaExclamationTriangle, FaSpinner } from "react-icons/fa";
+import { FaCheckCircle, FaExclamationTriangle, FaSpinner, FaCopy } from "react-icons/fa";
+import { toast } from "react-hot-toast";
 
-type PaymentStatus = 'pending' | 'approved' | 'processing' | 'error' | 'refunded' | 'cancelled' | 'failed';
+type PaymentStatus = 'PENDING' | 'APPROVED' | 'REFUNDED' | 'CANCELLED' | 'FAILED' | 'IN_PROCESS';
 
-interface PaymentStatusResponse {
+interface PaymentData {
+  id: string;
   status: PaymentStatus;
-  message?: string;
-  paymentId?: string;
-  isPix?: boolean;
-  qrCodeBase64?: string;
-  ticketUrl?: string;
+  metadata: {
+    method: string;
+    items: Array<{
+      id: string;
+      type: string;
+      title: string;
+      price: number;
+      quantity: number;
+    }>;
+    qr_code?: string;
+    qr_code_base64?: string;
+    ticket_url?: string;
+  };
 }
 
 export default function SuccessPage() {
@@ -26,245 +36,212 @@ export default function SuccessPage() {
 }
 
 function SuccessContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const paymentId = searchParams.get("payment_id");
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('processing');
+  const [payment, setPayment] = useState<PaymentData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isPix, setIsPix] = useState(false);
-  const [qrCodeBase64, setQrCodeBase64] = useState<string | null>(null);
-  const [ticketUrl, setTicketUrl] = useState<string | null>(null);
   const { clearCart } = useCart();
 
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Código copiado!', { position: 'top-center' });
+  };
+
   useEffect(() => {
     if (!paymentId) {
-      setError('ID de pagamento não encontrado');
-      setPaymentStatus('error');
+      setError("ID de pagamento não encontrado");
+      setIsLoading(false);
       return;
     }
 
     // Limpa o carrinho quando a página é carregada
     clearCart();
 
-    // Inicia a verificação do status do pagamento
-    checkPaymentStatus();
+    const fetchPayment = async () => {
+      try {
+        const response = await fetch(`/api/payments/${paymentId}`);
+        if (!response.ok) {
+          throw new Error('Falha ao buscar informações do pagamento');
+        }
+        const data = await response.json();
+        setPayment(data);
+      } catch (err) {
+        console.error('Erro ao buscar pagamento:', err);
+        setError('Não foi possível carregar as informações do pagamento');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPayment();
 
     // Configura o polling para verificar o status a cada 5 segundos
-    const intervalId = setInterval(checkPaymentStatus, 5000);
+    const intervalId = setInterval(fetchPayment, 5000);
 
     return () => clearInterval(intervalId);
-  }, [paymentId]);
+  }, [paymentId, clearCart]);
 
-  const checkPaymentStatus = async () => {
-    if (!paymentId) return;
-    
-    try {
-      const response = await fetch(`/api/mercado-pago/status?payment_id=${paymentId}`);
-      if (!response.ok) {
-        throw new Error('Erro ao verificar status do pagamento');
-      }
-      
-      const data: PaymentStatusResponse = await response.json();
-      
-      // Atualiza o estado com os dados do pagamento
-      setPaymentStatus(data.status);
-      setIsPix(data.isPix || false);
-      setQrCodeBase64(data.qrCodeBase64 || null);
-      setTicketUrl(data.ticketUrl || null);
-      
-      // Retorna true se o pagamento estiver finalizado
-      return ['approved', 'refunded', 'cancelled', 'failed'].includes(data.status);
-      
-    } catch (err) {
-      console.error('Erro ao verificar status do pagamento:', err);
-      setError('Não foi possível verificar o status do pagamento. Por favor, tente novamente mais tarde.');
-      setPaymentStatus('error');
-      return true; // Para parar o polling em caso de erro
-    }
-  };
-  
-  // Efeito para polling do status do pagamento
-  useEffect(() => {
-    if (!paymentId) {
-      setError('ID de pagamento não encontrado');
-      setPaymentStatus('error');
-      return;
-    }
-
-    // Limpa o carrinho quando a página é carregada
-    clearCart();
-
-    let intervalId: NodeJS.Timeout;
-    
-    const startPolling = async () => {
-      // Primeira verificação imediata
-      const isComplete = await checkPaymentStatus();
-      
-      // Se não estiver completo, inicia o polling
-      if (!isComplete) {
-        intervalId = setInterval(async () => {
-          const isComplete = await checkPaymentStatus();
-          if (isComplete) {
-            clearInterval(intervalId);
-          }
-        }, 5000); // Verifica a cada 5 segundos
-      }
-    };
-    
-    startPolling();
-    
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [paymentId]);
-  
-  // Renderiza o conteúdo com base no status do pagamento
-  const renderContent = () => {
-    if (error) {
-      return (
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-lg">Carregando informações do pagamento...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !payment) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center p-6 max-w-md">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-red-600">
             <FaExclamationTriangle className="h-8 w-8" />
           </div>
-          <h1 className="mt-4 text-2xl font-semibold text-gray-900">Ocorreu um erro</h1>
-          <p className="mt-2 text-gray-600">{error}</p>
+          <h1 className="mt-4 text-2xl font-semibold text-gray-900">Erro</h1>
+          <p className="mt-2 text-gray-600">{error || 'Pagamento não encontrado'}</p>
           <div className="mt-6">
             <Link
-              href="/checkout"
-              className="inline-flex items-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+              href="/"
+              className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              Voltar para o checkout
+              Voltar para a página inicial
             </Link>
           </div>
         </div>
-      );
-    }
+      </div>
+    );
+  }
 
-    switch (paymentStatus) {
-      case 'processing':
-        return (
-          <div className="text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center">
-              <FaSpinner className="h-8 w-8 animate-spin text-gray-600" />
-            </div>
-            <h1 className="mt-4 text-2xl font-semibold text-gray-900">Processando pagamento...</h1>
-            <p className="mt-2 text-gray-600">Estamos verificando o status do seu pagamento.</p>
-          </div>
-        );
-
-      case 'pending':
-        return (
-          <>
-            <div className="text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-yellow-100 text-yellow-600">
-                <FaExclamationTriangle className="h-8 w-8" />
-              </div>
-              <h1 className="mt-4 text-2xl font-semibold text-gray-900">Pagamento pendente</h1>
-              <p className="mt-2 text-gray-600">
-                Seu pagamento está sendo processado. Você receberá uma confirmação por e-mail quando for aprovado.
-              </p>
-            </div>
-            
-            {isPix && qrCodeBase64 && (
-              <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-                <h2 className="text-lg font-semibold text-gray-900">QR Code PIX</h2>
-                <div className="flex justify-center">
-                  <img 
-                    src={`data:image/png;base64,${qrCodeBase64}`} 
-                    alt="QR Code PIX" 
-                    className="h-64 w-64"
-                  />
-                </div>
-                <p className="text-sm text-gray-500">Escaneie o QR Code com o app do seu banco para efetuar o pagamento.</p>
-              </div>
-            )}
-            
-            {ticketUrl && (
-              <div className="mt-4">
-                <a
-                  href={ticketUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center text-sm font-medium text-gray-900 hover:text-gray-700"
-                >
-                  Abrir boleto para pagamento
-                </a>
-              </div>
-            )}
-          </>
-        );
-
-      case 'approved':
-        return (
-          <div className="text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
-              <FaCheckCircle className="h-8 w-8" />
-            </div>
-            <h1 className="mt-4 text-2xl font-semibold text-gray-900">Pagamento aprovado!</h1>
-            <p className="mt-2 text-gray-600">
-              Obrigado por sua compra! Seu pagamento foi processado com sucesso.
-            </p>
-            <div className="mt-6">
-              <Link
-                href="/dashboard"
-                className="inline-flex items-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
-              >
-                Ir para o painel
-              </Link>
-            </div>
-          </div>
-        );
-
-      case 'cancelled':
-      case 'refunded':
-      case 'failed':
-        return (
-          <div className="text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-red-600">
-              <FaExclamationTriangle className="h-8 w-8" />
-            </div>
-            <h1 className="mt-4 text-2xl font-semibold text-gray-900">
-              {paymentStatus === 'cancelled' ? 'Pagamento cancelado' : 
-               paymentStatus === 'refunded' ? 'Pagamento reembolsado' : 'Falha no pagamento'}
-            </h1>
-            <p className="mt-2 text-gray-600">
-              {paymentStatus === 'cancelled' ? 'Seu pagamento foi cancelado.' : 
-               paymentStatus === 'refunded' ? 'O valor do seu pagamento foi reembolsado.' : 
-               'Ocorreu um erro ao processar seu pagamento.'}
-            </p>
-            <div className="mt-6 space-x-3">
-              <Link
-                href="/checkout"
-                className="inline-flex items-center rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
-              >
-                Tentar novamente
-              </Link>
-              <Link
-                href="/"
-                className="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Voltar para a página inicial
-              </Link>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
+  const isPix = payment.metadata.method === 'pix';
+  const isPending = payment.status === 'PENDING' || payment.status === 'IN_PROCESS';
+  const isApproved = payment.status === 'APPROVED';
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-10">
-      <div className="mx-auto max-w-lg space-y-6 text-center">
-        {renderContent()}
-        
-        {paymentId && (
-          <p className="text-sm text-gray-500">
-            ID do pagamento: {paymentId}
-          </p>
-        )}
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto">
+        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+          <div className="px-4 py-5 sm:px-6">
+            <h3 className="text-lg leading-6 font-medium text-gray-900">
+              {isApproved ? 'Pagamento Aprovado!' : 'Aguardando Confirmação do Pagamento'}
+            </h3>
+            <p className="mt-1 max-w-2xl text-sm text-gray-500">
+              {isApproved 
+                ? 'Seu pagamento foi aprovado com sucesso!'
+                : 'Estamos aguardando a confirmação do seu pagamento.'}
+            </p>
+          </div>
+          
+          <div className="border-t border-gray-200 px-4 py-5 sm:p-0">
+            <dl className="sm:divide-y sm:divide-gray-200">
+              <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                <dt className="text-sm font-medium text-gray-500">Status</dt>
+                <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                    ${isApproved ? 'bg-green-100 text-green-800' : 
+                      isPending ? 'bg-yellow-100 text-yellow-800' : 
+                      'bg-red-100 text-red-800'}`}>
+                    {payment.status === 'APPROVED' ? 'Aprovado' : 
+                     payment.status === 'PENDING' ? 'Pendente' :
+                     payment.status === 'IN_PROCESS' ? 'Processando' : 
+                     payment.status}
+                  </span>
+                </dd>
+              </div>
+              
+              {isPix && isPending && payment.metadata.qr_code && (
+                <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                  <dt className="text-sm font-medium text-gray-500">PIX</dt>
+                  <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                    <div className="flex flex-col items-center space-y-4">
+                      {payment.metadata.qr_code_base64 && (
+                        <div className="p-4 bg-white rounded-lg border border-gray-200">
+                          <img 
+                            src={`data:image/png;base64,${payment.metadata.qr_code_base64}`} 
+                            alt="QR Code PIX" 
+                            className="w-64 h-64"
+                          />
+                        </div>
+                      )}
+                      
+                      {payment.metadata.qr_code && (
+                        <div className="w-full">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Código PIX (copie e cole no seu banco)
+                          </label>
+                          <div className="mt-1 flex rounded-md shadow-sm">
+                            <div className="relative flex-1">
+                              <input
+                                type="text"
+                                readOnly
+                                value={payment.metadata.qr_code}
+                                className="focus:ring-blue-500 focus:border-blue-500 block w-full rounded-none rounded-l-md sm:text-sm border-gray-300"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(payment.metadata.qr_code || '')}
+                              className="inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 bg-gray-50 text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-r-md"
+                            >
+                              <FaCopy className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </dd>
+                </div>
+              )}
+              
+              <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                <dt className="text-sm font-medium text-gray-500">Método de pagamento</dt>
+                <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                  {isPix ? 'PIX' : 'Cartão de Crédito'}
+                </dd>
+              </div>
+              
+              <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                <dt className="text-sm font-medium text-gray-500">Itens</dt>
+                <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                  <ul className="border border-gray-200 rounded-md divide-y divide-gray-200">
+                    {payment.metadata.items.map((item, index) => (
+                      <li key={index} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm">
+                        <div className="w-0 flex-1 flex items-center">
+                          <span className="ml-2 flex-1 w-0 truncate">
+                            {item.quantity}x {item.title}
+                          </span>
+                        </div>
+                        <div className="ml-4 flex-shrink-0">
+                          <span className="font-medium text-gray-900">
+                            R$ {(item.price * item.quantity / 100).toFixed(2).replace('.', ',')}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
+            </dl>
+          </div>
+          
+          <div className="bg-gray-50 px-4 py-4 sm:px-6 flex justify-end">
+            {isApproved ? (
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                Acessar meus cursos
+              </Link>
+            ) : (
+              <div className="text-sm text-gray-500">
+                Atualizando automaticamente... 
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-    </main>
+    </div>
   );
 }
