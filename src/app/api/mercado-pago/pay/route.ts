@@ -2,39 +2,6 @@ import { NextResponse } from "next/server";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import prisma from "@/lib/prisma";
 
-async function validateItem(item: Item) {
-  if (item.type === 'curso') {
-    const course = await prisma.course.findUnique({
-      where: { id: item.id },
-      select: { id: true, title: true, price: true, imageUrl: true }
-    });
-    if (!course) {
-      throw new Error(`Curso não encontrado: ${item.id}`);
-    }
-    return {
-      ...item,
-      title: course.title,
-      price: course.price,
-      imageUrl: course.imageUrl
-    };
-  } else {
-    const journey = await prisma.journey.findUnique({
-      where: { id: item.id },
-      select: { id: true, title: true, price: true, imageUrl: true }
-    });
-    if (!journey) {
-      throw new Error(`Jornada não encontrada: ${item.id}`);
-    }
-    return {
-      ...item,
-      title: journey.title,
-      price: journey.price,
-      imageUrl: journey.imageUrl,
-      type: 'journey' as const
-    };
-  }
-}
-
 const mp = new MercadoPagoConfig({
   accessToken: process.env.MP_ACCESS_TOKEN!,
   options: {
@@ -81,16 +48,15 @@ export async function POST(req: Request) {
     }
 
     // Validate and enrich items with database data
-    let enrichedItems;
-    try {
-      enrichedItems = await Promise.all(items.map(validateItem));
-    } catch (error) {
-      console.error('Erro ao validar itens:', error);
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : 'Erro ao validar itens' },
-        { status: 400 }
-      );
-    }
+    const enrichedItems = items.map(item => ({
+      ...item,
+      // Ensure required fields have default values
+      title: item.title || (item.type === 'curso' ? 'Curso' : 'Jornada'),
+      price: item.price || 0,
+      quantity: item.quantity || 1,
+      imageUrl: item.imageUrl || ''
+    }));
+
 
     // Calcular o total se não fornecido (em centavos)
     const calculatedTotalInCents = total || enrichedItems.reduce((sum, item) => sum + (item.price! * item.quantity), 0);
