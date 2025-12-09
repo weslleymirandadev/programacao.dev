@@ -249,13 +249,13 @@ model CartItem {
 model Payment {
   id          String        @id @default(cuid())
   userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   mpPaymentId String        @unique
   status      String
   amount      Int
   metadata    Json?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
-  user        User          @relation(fields: [userId], references: [id])
   items       PaymentItem[]
   refunds     Refund[]
 
