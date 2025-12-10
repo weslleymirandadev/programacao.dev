@@ -176,16 +176,25 @@ export default function Home() {
         <h1 className="text-4xl font-bold mb-6">Cursos Disponíveis</h1>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {courses.map((course) => (
+
             <div key={course.id} className="border rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow">
               {course.imageUrl && (
-                <img
-                  src={course.imageUrl}
-                  alt={course.title}
-                  className="w-full h-48 object-cover"
-                />
+                <Link
+                  href={`/cursos/${course.id}`}
+                >
+                  <img
+                    src={course.imageUrl}
+                    alt={course.title}
+                    className="w-full h-48 object-cover"
+                  />
+                </Link>
               )}
               <div className="p-4">
-                <h2 className="text-xl font-semibold mb-2">{course.title}</h2>
+                <Link
+                  href={`/cursos/${course.id}`}
+                >
+                  <h2 className="text-xl font-semibold mb-2">{course.title}</h2>
+                </Link>
                 <p className="text-gray-600 mb-3 line-clamp-2 h-12">{course.description}</p>
                 <div className="flex justify-between items-center mb-3">
                   <span className="text-sm text-gray-500">{course.level}</span>
@@ -205,12 +214,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Link
-                    href={`/cursos/${course.id}`}
-                    className="text-center bg-primary text-white py-2 rounded hover:bg-primary/90 transition-colors"
-                  >
-                    Ver Curso
-                  </Link>
+
                   <div className="mt-4">
                     {renderAccessButton(course, "curso")}
                   </div>
