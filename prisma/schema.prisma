@@ -17,7 +17,7 @@ model User {
   updatedAt        DateTime         @updatedAt
   accounts         Account[]
   cart             Cart?
-  coursesOwned     Course[]         @relation("CourseInstructor")
+  coursesOwned     Course[]
   coursePosts      CoursePost[]
   enrollments      Enrollment[]
   forumComments    ForumComment[]
@@ -39,7 +39,6 @@ model UserPassword {
 
 enum UserRole {
   USER
-  INSTRUCTOR
   MODERATOR
   ADMIN
 }
@@ -90,16 +89,15 @@ model Course {
   public          Boolean        @default(false)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
-  instructorId    String?
   level           String
   cartItems       CartItem[]
-  instructor      User?          @relation("CourseInstructor", fields: [instructorId], references: [id])
   posts           CoursePost[]
   enrollments     Enrollment[]
   forumPosts      ForumPost[]
   modules         Module[]
   paymentItems    PaymentItem[]
-  journeys        JourneyCourse[]
+
+  users User[]
 }
 
 model Module {
@@ -140,13 +138,10 @@ model Enrollment {
   startDate DateTime  @default(now())
   endDate   DateTime?
   createdAt DateTime  @default(now())
-  journeyId String?
   course    Course?   @relation(fields: [courseId], references: [id])
-  journey   Journey?  @relation(fields: [journeyId], references: [id])
   user      User      @relation(fields: [userId], references: [id])
 
   @@unique([userId, courseId])
-  @@unique([userId, journeyId])
 }
 
 model CoursePost {
@@ -160,63 +155,17 @@ model CoursePost {
   course    Course   @relation(fields: [courseId], references: [id])
 }
 
-model Journey {
-  id          String          @id @default(cuid())
-  title       String
-  imageUrl    String?
-  description String
-  price       Int?
-  public      Boolean         @default(false)
-  cartItems   CartItem[]
-  enrollments Enrollment[]
-  forumPosts  ForumPost[]
-  modules     JourneyModule[]
-  paymentItems PaymentItem[]
-  courses     JourneyCourse[]
-}
-
-model JourneyCourse {
-  id        String   @id @default(cuid())
-  journeyId String
-  courseId  String
-  order     Int
-  journey   Journey  @relation(fields: [journeyId], references: [id])
-  course    Course   @relation(fields: [courseId], references: [id])
-  
-  @@unique([journeyId, courseId])
-}
-
-model JourneyModule {
-  id        String          @id @default(cuid())
-  journeyId String
-  title     String
-  order     Int
-  lessons   JourneyLesson[]
-  journey   Journey         @relation(fields: [journeyId], references: [id])
-}
-
-model JourneyLesson {
-  id       String        @id @default(cuid())
-  moduleId String
-  title    String
-  content  Json
-  order    Int
-  module   JourneyModule @relation(fields: [moduleId], references: [id])
-}
-
 model ForumPost {
   id        String         @id @default(cuid())
   authorId  String
   title     String
   content   Json
   cursoId   String?
-  jornadaId String?
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   comments  ForumComment[]
   author    User           @relation(fields: [authorId], references: [id])
   curso     Course?        @relation(fields: [cursoId], references: [id])
-  jornada   Journey?       @relation(fields: [jornadaId], references: [id])
 }
 
 model ForumComment {
@@ -240,17 +189,13 @@ model Cart {
 model CartItem {
   id        String          @id @default(cuid())
   cartId    String
-  itemType  PaymentItemType
   courseId  String?
-  journeyId String?
   quantity  Int             @default(1)
   createdAt DateTime        @default(now())
   cart      Cart            @relation(fields: [cartId], references: [id])
   course    Course?         @relation(fields: [courseId], references: [id])
-  journey   Journey?        @relation(fields: [journeyId], references: [id])
 
   @@index([cartId])
-  @@index([itemType])
 }
 
 model Payment {
@@ -273,9 +218,7 @@ model Payment {
 model PaymentItem {
   id          String          @id @default(cuid())
   paymentId   String
-  itemType    PaymentItemType
   courseId    String?
-  journeyId   String?
   quantity    Int             @default(1)
   price       Int
   title       String
@@ -284,12 +227,9 @@ model PaymentItem {
   updatedAt   DateTime        @updatedAt
   payment     Payment         @relation(fields: [paymentId], references: [id])
   course      Course?         @relation(fields: [courseId], references: [id])
-  journey     Journey?        @relation(fields: [journeyId], references: [id])
 
   @@index([paymentId])
-  @@index([itemType])
   @@index([courseId])
-  @@index([journeyId])
 }
 
 model Refund {
@@ -304,7 +244,3 @@ model Refund {
   @@index([paymentId])
 }
 
-enum PaymentItemType {
-  COURSE
-  JOURNEY
-}

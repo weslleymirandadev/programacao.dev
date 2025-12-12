@@ -7,7 +7,7 @@ import GoogleProvider from "next-auth/providers/google";
 import GitHubProvider from "next-auth/providers/github";
 import { UserRole } from "@/generated/prisma/enums";
 
-async function resolveUserRole(email: string): Promise<"USER" | "ADMIN" | "INSTRUCTOR" | "MODERATOR"> {
+async function resolveUserRole(email: string): Promise<"USER" | "ADMIN" | "MODERATOR"> {
   const roleEntry = await prisma.roleEmail.findUnique({
     where: { email },
   });
