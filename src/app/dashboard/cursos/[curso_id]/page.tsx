@@ -36,9 +36,6 @@ interface Course {
   title: string;
   description: string;
   imageUrl: string | null;
-  instructor: {
-    name: string | null;
-  } | null;
   modules: Module[];
 }
 
@@ -65,9 +62,6 @@ interface Enrollment {
     title: string;
     description: string;
     imageUrl: string | null;
-    instructor: {
-      name: string | null;
-    } | null;
     modules: Module[];
   };
   payments: Payment[];
@@ -345,7 +339,7 @@ export default function DashboardCoursePage({ params }: { params: Promise<{ curs
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">{course.title}</h1>
                 <p className="text-gray-600">
-                  Ministrado por {course.instructor?.name || 'Instrutor'}
+                  Ministrado por Clara
                 </p>
               </div>
               <div className="flex items-center gap-4">
