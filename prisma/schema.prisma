@@ -37,6 +37,13 @@ model UserPassword {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+enum UserRole {
+  USER
+  INSTRUCTOR
+  MODERATOR
+  ADMIN
+}
+
 model RoleEmail {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -295,13 +302,6 @@ model Refund {
   payment    Payment  @relation(fields: [paymentId], references: [id])
 
   @@index([paymentId])
-}
-
-enum UserRole {
-  USER
-  INSTRUCTOR
-  MODERATOR
-  ADMIN
 }
 
 enum PaymentItemType {
