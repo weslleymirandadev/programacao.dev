@@ -79,7 +79,7 @@ export async function proxy(req: NextRequest) {
 
   // 7. Permissões para /admin
   if (pathname.startsWith("/admin")) {
-    if (!token || !["ADMIN", "MODERATOR"].includes(token.role as string)) {
+    if (!token || token.role != "ADMIN" ) {
       return NextResponse.redirect(new URL("/dashboard", req.url));
     }
   }
