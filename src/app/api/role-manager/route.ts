@@ -42,7 +42,7 @@ export async function POST(req: Request) {
 
   const { email, role } = await req.json() as {
     email?: string;
-    role?: "ADMIN" | "INSTRUCTOR" | "MODERATOR";
+    role?: "ADMIN" | "MODERATOR";
   };
 
   if (!email || !role) {

@@ -6,7 +6,6 @@ export interface Course {
   price?: number | null;
   public: boolean;
   level: string;
-  instructorId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
