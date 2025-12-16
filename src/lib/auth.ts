@@ -12,7 +12,13 @@ async function resolveUserRole(email: string): Promise<"USER" | "ADMIN" | "MODER
     where: { email },
   });
 
-  return roleEntry?.role ?? "USER";
+  // Ensure we only return a role allowed by the function's return type union
+  const allowedRoles = ["USER", "ADMIN", "MODERATOR"] as const;
+  const role = roleEntry?.role;
+  if (allowedRoles.includes(role as any)) {
+    return role as typeof allowedRoles[number];
+  }
+  return "USER";
 }
 
 // Cria usuário social (Google) sem senha
